@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./server -log_to_stdout=true
+./message_service -log_to_stdout=true
