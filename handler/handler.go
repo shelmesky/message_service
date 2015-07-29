@@ -15,7 +15,7 @@ import (
 
 const (
 	CHANNEL_LOCKS          = 20
-	MULTI_CAST_BUFFER_SIZE = 1024
+	MULTI_CAST_BUFFER_SIZE = 4096
 	MESSAGE_LIST_SIZE      = 50
 )
 
