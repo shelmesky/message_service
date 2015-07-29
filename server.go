@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"github.com/gorilla/mux"
 	"github.com/shelmesky/message_service/handler"
+	"github.com/shelmesky/message_service/utils"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -55,7 +57,9 @@ func init() {
 	} else {
 		log_file = os.Stdin
 	}
+
 	logger = log.New(log_file, "Server: ", log.Ldate|log.Ltime|log.Lshortfile)
+	utils.Log = logger
 }
 
 func Exist(filename string) bool {
@@ -165,16 +169,18 @@ func main() {
 		}()
 	}
 
-	http.HandleFunc("/api/message/post", handler.MessagePostHandler)
-	http.HandleFunc("/api/message/poll", handler.MessagePollHandler)
+	router := mux.NewRouter()
 
 	s := &http.Server{
 		Addr:           Config.ListenAddress,
-		Handler:        nil,
+		Handler:        router,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
+
+	router.HandleFunc("/api/{channel}/post", handler.MessagePostHandler).Methods("POST")
+	router.HandleFunc("/api/{channel}/poll/{user_id}", handler.MessagePollHandler).Methods("GET")
 
 	s.SetKeepAlivesEnabled(false)
 
