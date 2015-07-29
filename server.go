@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
+	"io/ioutil"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -12,30 +15,100 @@ import (
 	"time"
 )
 
-const (
-	SERVER_LISTEN       = "0.0.0.0:34569"
-	SERVER_PERF_LISTEN  = "0.0.0.0:34570"
-	ENABLE_PERF_PROFILE = true
-	LOG_FILE            = "server.log"
-)
-
 var (
 	logger      *log.Logger
 	signal_chan chan os.Signal // 处理信号的channel
+
+	ConfigFile           = flag.String("config", "./config.json", "")
+	LogFile              = flag.String("log_file", "./server.log", "logging file, default: server.log")
+	ListenAddress        = flag.String("listen_address", "", "server listen on, default: 0.0.0.0:34569")
+	ProfileListenAddress = flag.String("profile_listen_address", "", "server listen on, default: 0.0.0.0:34570")
+	EnableServerProfile  = flag.Bool("enable_profile", true, "Start web profile interface (true or false).")
+	LogToStdout          = flag.Bool("log_to_stdout", false, "Print log to standard output (true or false).")
+
+	Config GlobalConfig
 )
 
+type GlobalConfig struct {
+	LogFile              string `json:"log_file"`
+	ListenAddress        string `json:"listen_address"`
+	ProfileListenAddress string `json:"profile_listen_address"`
+	EnableServerProfile  bool
+	LogToStdout          bool
+}
+
 func init() {
-	// init logging
-	log_file, err := os.OpenFile(LOG_FILE, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+	var log_file *os.File
+	var err error
+
+	flag.Parse()
+	ExtraInit()
+
+	if !(*LogToStdout) {
+		// init logging
+		log_file, err = os.OpenFile(*LogFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
+		if err != nil {
+			log.Println(err)
+			os.Exit(1)
+		}
+	} else {
+		log_file = os.Stdin
 	}
 	logger = log.New(log_file, "Server: ", log.Ldate|log.Ltime|log.Lshortfile)
-	ExtraInit()
+}
+
+func Exist(filename string) bool {
+	_, err := os.Stat(filename)
+	return err == nil || os.IsExist(err)
 }
 
 func ExtraInit() {
+	if *EnableServerProfile == true {
+		Config.EnableServerProfile = true
+	}
+
+	if !Exist(*ConfigFile) {
+		if *LogFile == "" {
+			*LogFile = "./server.log"
+		}
+		Config.LogFile = *LogFile
+
+		if *ListenAddress == "" {
+			*ListenAddress = "0.0.0.0:34569"
+		}
+		Config.ListenAddress = *ListenAddress
+
+		if *ProfileListenAddress == "" {
+			*ProfileListenAddress = "0.0.0.0:34570"
+		}
+		Config.ProfileListenAddress = *ProfileListenAddress
+
+	} else {
+		data, err := ioutil.ReadFile(*ConfigFile)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		err = json.Unmarshal(data, &Config)
+		if err != nil {
+			log.Println(err)
+		}
+
+		log.Println("config:", Config, "listen_address:", len(*ListenAddress))
+
+		if *LogFile != "" {
+			Config.LogFile = *LogFile
+		}
+
+		if *ListenAddress != "" {
+			Config.ListenAddress = *ListenAddress
+		}
+
+		if *ProfileListenAddress != "" {
+			Config.ProfileListenAddress = *ProfileListenAddress
+		}
+	}
 }
 
 // 信号回调
@@ -93,9 +166,9 @@ func main() {
 	go signalCallback()
 
 	// 启动性能调试接口
-	if ENABLE_PERF_PROFILE == true {
+	if *EnableServerProfile == true {
 		go func() {
-			http.ListenAndServe(SERVER_PERF_LISTEN, nil)
+			http.ListenAndServe(Config.ProfileListenAddress, nil)
 		}()
 	}
 
@@ -103,7 +176,7 @@ func main() {
 	http.HandleFunc("/api/message/poll", MessagePollHandler)
 
 	s := &http.Server{
-		Addr:           SERVER_LISTEN,
+		Addr:           Config.ListenAddress,
 		Handler:        nil,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
@@ -112,6 +185,6 @@ func main() {
 
 	s.SetKeepAlivesEnabled(false)
 
-	logger.Printf("Server [PID: %d] listen on [%s]\n", os.Getpid(), SERVER_LISTEN)
+	logger.Printf("Server [PID: %d] listen on [%s]\n", os.Getpid(), Config.ListenAddress)
 	logger.Fatal(s.ListenAndServe())
 }
