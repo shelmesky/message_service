@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const (
@@ -339,21 +340,27 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 }
 
-func ChannelSender(channel_name string, channel chan *PostMessage) {
+func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 	for {
-		post_message := <-channel
 		channel, err := GetChannel(channel_name)
-		if err != nil {
-			utils.Log.Printf("GetChannel failed: [%s], channel: [%s]\n", err, channel_name)
-			continue
-		}
-
-		for key := range channel.Users {
-			if user, ok := channel.Users[key]; ok {
-				user.SpinLock.Lock()
-				user.MessageBuffer.PushBack(post_message)
-				user.SpinLock.Unlock()
+		// 如果channel中有用户，则保存消息到用户的消息缓存
+		if len(channel.Users) > 0 {
+			post_message := <-multicast_channel
+			if err != nil {
+				utils.Log.Printf("GetChannel failed: [%s], channel: [%s]\n", err, channel_name)
+				continue
 			}
+
+			for key := range channel.Users {
+				if user, ok := channel.Users[key]; ok {
+					user.SpinLock.Lock()
+					user.MessageBuffer.PushBack(post_message)
+					user.SpinLock.Unlock()
+				}
+			}
+		} else {
+			// channel中不存在用户，暂停500毫秒
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 }
