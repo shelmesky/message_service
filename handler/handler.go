@@ -15,6 +15,7 @@ import (
 const (
 	CHANNEL_LOCKS          = 20
 	MULTI_CAST_BUFFER_SIZE = 1024
+	MESSAGE_LIST_SIZE      = 50
 )
 
 var (
@@ -263,8 +264,10 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
 	var user_id string
 	var ok bool
-	var message_list []*PostMessage
 	var poll_message PollMessage
+
+	var message_list []*PostMessage
+	var message_list_raw []*list.Element
 
 	vars := mux.Vars(req)
 	if channel_name, ok = vars["channel"]; !ok {
@@ -296,15 +299,24 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	message_list_size := 0
 	user.SpinLock.Lock()
 	if user.MessageBuffer != nil {
 		for e := user.MessageBuffer.Front(); e != nil; e = e.Next() {
+			if message_list_size == MESSAGE_LIST_SIZE {
+				break
+			}
 			if post_message, ok := e.Value.(*PostMessage); ok {
 				message_list = append(message_list, post_message)
+				message_list_raw = append(message_list_raw, e)
+				message_list_size += 1
 			}
 		}
-		// 清空List
-		user.MessageBuffer.Init()
+
+		for idx := range message_list_raw {
+			element := message_list_raw[idx]
+			user.MessageBuffer.Remove(element)
+		}
 	}
 	user.SpinLock.Unlock()
 
