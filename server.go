@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"github.com/shelmesky/message_service/handler"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -131,12 +132,6 @@ func GC() {
 	}
 }
 
-func MessagePostHandler(w http.ResponseWriter, r *http.Request) {
-}
-
-func MessagePollHandler(w http.ResponseWriter, r *http.Request) {
-}
-
 func main() {
 	defer func() {
 		if err := recover(); err != nil {
@@ -170,8 +165,8 @@ func main() {
 		}()
 	}
 
-	http.HandleFunc("/api/message/post", MessagePostHandler)
-	http.HandleFunc("/api/message/poll", MessagePollHandler)
+	http.HandleFunc("/api/message/post", handler.MessagePostHandler)
+	http.HandleFunc("/api/message/poll", handler.MessagePollHandler)
 
 	s := &http.Server{
 		Addr:           Config.ListenAddress,
