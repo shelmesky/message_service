@@ -95,8 +95,6 @@ func ExtraInit() {
 			log.Println(err)
 		}
 
-		log.Println("config:", Config, "listen_address:", len(*ListenAddress))
-
 		if *LogFile != "" {
 			Config.LogFile = *LogFile
 		}
