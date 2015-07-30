@@ -1,5 +1,6 @@
 {
     "log_file": "./server.log",
     "listen_address": "0.0.0.0:34569",
-    "profile_listen_address": "0.0.0.0:34670"
+    "profile_listen_address": "0.0.0.0:34670",
+    "server_debug": false
 }

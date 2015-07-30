@@ -28,6 +28,7 @@ var (
 	ProfileListenAddress = flag.String("profile_listen_address", "", "server listen on, default: 0.0.0.0:34570")
 	EnableServerProfile  = flag.Bool("enable_profile", true, "Start web profile interface (true or false).")
 	LogToStdout          = flag.Bool("log_to_stdout", false, "Print log to standard output (true or false).")
+	ServerDebug          = flag.Bool("server_debug", false, "Print debug information")
 
 	Config GlobalConfig
 )
@@ -38,6 +39,7 @@ type GlobalConfig struct {
 	ProfileListenAddress string `json:"profile_listen_address"`
 	EnableServerProfile  bool
 	LogToStdout          bool
+	ServerDebug          bool
 }
 
 func init() {
@@ -70,6 +72,11 @@ func Exist(filename string) bool {
 func ExtraInit() {
 	if *EnableServerProfile == true {
 		Config.EnableServerProfile = true
+	}
+
+	if *ServerDebug == true {
+		Config.ServerDebug = true
+		handler.ServerDebug = true
 	}
 
 	if !Exist(*ConfigFile) {

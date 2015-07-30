@@ -32,6 +32,8 @@ var (
 
 	// byte pool: 8K []byte each of which can hold 8K of data
 	byte_pool = bytepool.New(8192, 8192)
+
+	ServerDebug bool
 )
 
 type AllChannel struct {
@@ -279,6 +281,10 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if ServerDebug {
+		utils.Log.Printf("Got message from [%s], message: [%s], message_id: [%s], channel: [%s]\n", req.RemoteAddr, string(body), message_id, channel_name)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
 
@@ -359,6 +365,10 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		w.WriteHeader(http.StatusBadRequest)
 		return
+	}
+
+	if ServerDebug == true {
+		utils.Log.Printf("Send message to [%s], message: [%s], channel: [%s]\n", req.RemoteAddr, string(buf), channel_name)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
