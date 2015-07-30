@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/shelmesky/bytepool"
 	isync "github.com/shelmesky/message_service/sync"
 	"github.com/shelmesky/message_service/utils"
-	"io/ioutil"
 	"net/http"
 	"sync"
 	"time"
@@ -21,12 +21,17 @@ const (
 
 var (
 	all_channel *AllChannel
+
 	// object pool
 	post_message_pool        *sync.Pool
+	post_reply_pool          *sync.Pool
+	poll_message_pool        *sync.Pool
 	user_pool                *sync.Pool
 	user_spinlock_pool       *sync.Pool
 	user_message_buffer_pool *sync.Pool
-	user_post_reply_pool     *sync.Pool
+
+	// byte pool: 8K []byte each of which can hold 8K of data
+	byte_pool = bytepool.New(8192, 8192)
 )
 
 type AllChannel struct {
@@ -73,6 +78,25 @@ func init() {
 	all_channel = new(AllChannel)
 	all_channel.Lock = new(sync.RWMutex)
 	all_channel.Channels = make(map[string]*Channel, 0)
+
+	post_message_pool = &sync.Pool{
+		New: func() interface{} {
+			return new(PostMessage)
+		},
+	}
+
+	post_reply_pool = &sync.Pool{
+		New: func() interface{} {
+			return new(PostReply)
+		},
+	}
+
+	poll_message_pool = &sync.Pool{
+		New: func() interface{} {
+			return new(PollMessage)
+		},
+	}
+
 }
 
 func ChannelExists(channel_name string) bool {
@@ -205,8 +229,6 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
 	var ok bool
-	var post_message PostMessage
-	var post_reply PostReply
 	var channel *Channel
 	var err error
 	var buf []byte
@@ -218,14 +240,14 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	buf, err = ioutil.ReadAll(req.Body)
-	if err != nil {
-		utils.Log.Printf("Read data from: [%s] failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	// use byte pool
+	buffer := byte_pool.Checkout()
+	defer buffer.Close()
+	buffer.ReadFrom(req.Body)
+	body := buffer.Bytes()
 
-	err = json.Unmarshal(buf, &post_message)
+	post_message := post_message_pool.Get().(*PostMessage)
+	err = json.Unmarshal(body, post_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Unmarshal json failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		w.WriteHeader(http.StatusBadRequest)
@@ -243,13 +265,14 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	post_message.MessageID = message_id
 
 	if post_message.ToUser == "" {
-		channel.MultiCastChan <- &post_message
+		channel.MultiCastChan <- post_message
 	}
 
+	post_reply := post_reply_pool.Get().(*PostReply)
 	post_reply.Result = 0
 	post_reply.MessageID = message_id
 
-	buf, err = json.Marshal(post_reply)
+	buf, err = json.Marshal(*post_reply)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		w.WriteHeader(http.StatusBadRequest)
@@ -258,6 +281,8 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
+
+	post_reply_pool.Put(post_reply)
 }
 
 // 处理Poll消息
@@ -265,7 +290,6 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
 	var user_id string
 	var ok bool
-	var poll_message PollMessage
 
 	var message_list []*PostMessage
 	var message_list_raw []*list.Element
@@ -321,6 +345,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	user.SpinLock.Unlock()
 
+	poll_message := poll_message_pool.Get().(*PollMessage)
 	poll_message.Result = 0
 	poll_message.MessageLength = len(message_list)
 	if len(message_list) == 0 {
@@ -329,7 +354,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		poll_message.MessageList = message_list
 	}
 
-	buf, err := json.Marshal(poll_message)
+	buf, err := json.Marshal(*poll_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		w.WriteHeader(http.StatusBadRequest)
@@ -338,6 +363,12 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
+
+	for idx := range message_list {
+		post_message_pool.Put(message_list[idx])
+	}
+
+	poll_message_pool.Put(poll_message)
 }
 
 func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
