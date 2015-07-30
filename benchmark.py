@@ -28,7 +28,6 @@ URL = URL_RAW % CHANNEL
 HEADERS = None
 
 PAYLOAD = json.dumps({
-    "result": 0,
     "type": "live_show_online",
     "data": [
         {
