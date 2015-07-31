@@ -20,12 +20,12 @@ from logging import handlers
 # 参数配置开始
 BASE_URI = "http://127.0.0.1:34569"
 METHOD = "POST"
-URL_RAW = "/api/%s/post"
-CHANNEL = "app"
-URL = URL_RAW % CHANNEL
+URL = "/api/post"
 # 参数配置结束
 
-HEADERS = None
+HEADERS = {
+    "channel": "app"
+}
 
 PAYLOAD = json.dumps({
     "type": "live_show_online",

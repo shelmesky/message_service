@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS          = 20
-	MULTI_CAST_BUFFER_SIZE = 4096
-	MESSAGE_LIST_SIZE      = 50
+	CHANNEL_LOCKS             = 16
+	CHANNEL_SCAVENGER         = 8
+	MULTI_CAST_BUFFER_SIZE    = 4096
+	MESSAGE_LIST_SIZE         = 50
+	DELAY_CLEAN_USER_RESOURCE = 10
 )
 
 var (
@@ -44,6 +46,7 @@ type Channel struct {
 	Name          string
 	Users         map[string]*User
 	UsersLock     []*sync.RWMutex
+	ScavengerChan []chan *User
 	MultiCastChan chan *PostMessage
 	Count         int64
 	//SingleCastChan chan *PostMessage
@@ -98,6 +101,11 @@ func init() {
 		},
 	}
 
+	user_pool = &sync.Pool{
+		New: func() interface{} {
+			return new(User)
+		},
+	}
 }
 
 func ChannelExists(channel_name string) bool {
@@ -111,10 +119,11 @@ func ChannelExists(channel_name string) bool {
 }
 
 func NewUser(user_id string) *User {
-	user := new(User)
+	user := user_pool.Get().(*User)
 	user.ID = user_id
 	user.SpinLock = new(isync.SpinLock)
 	user.MessageBuffer = list.New()
+	user.LastUpdate = time.Now().Unix()
 	return user
 }
 
@@ -143,6 +152,9 @@ func GetChannel(channel_name string) (*Channel, error) {
 
 	if !ok {
 		channel = new(Channel)
+
+		// 为每个Channel创建CHANNEL_LOCKS个锁
+		// 在Channel中查找用户时，根据user_id和CHANNEL_LOCKS取模获得锁
 		for i := 0; i < CHANNEL_LOCKS; i++ {
 			lock = new(sync.RWMutex)
 			channel.UsersLock = append(channel.UsersLock, lock)
@@ -156,6 +168,15 @@ func GetChannel(channel_name string) (*Channel, error) {
 
 		all_channel.Lock.Lock()
 		all_channel.Channels[channel_name] = channel
+
+		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
+		// 定时清除Channel内过期的用户资源
+		for j := 0; j < CHANNEL_SCAVENGER; j++ {
+			scavenger_chan := make(chan *User, 1024)
+			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
+			go ChannelScavenger(channel, scavenger_chan)
+		}
+
 		all_channel.Lock.Unlock()
 
 		return channel, nil
@@ -164,18 +185,18 @@ func GetChannel(channel_name string) (*Channel, error) {
 	return channel, fmt.Errorf("GetChannel failed!")
 }
 
-func (this *Channel) getLock(user_id string) *sync.RWMutex {
+func (this *Channel) getLock(user_id string) (*sync.RWMutex, uint32) {
 	user_id_hash := utils.GenKey(user_id)
 	user_lock_id := user_id_hash % CHANNEL_LOCKS
 
-	return this.UsersLock[user_lock_id]
+	return this.UsersLock[user_lock_id], user_lock_id
 }
 
 func (this *Channel) GetUser(user_id string) (*User, error) {
 	var user *User
 	var ok bool
 
-	users_lock := this.getLock(user_id)
+	users_lock, _ := this.getLock(user_id)
 	users_lock.RLock()
 	if user, ok = this.Users[user_id]; ok {
 		users_lock.RUnlock()
@@ -190,7 +211,7 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 	var user *User
 	var ok bool
 
-	users_lock := this.getLock(user_id)
+	users_lock, hash_key := this.getLock(user_id)
 	users_lock.Lock()
 
 	if user, ok = this.Users[user_id]; ok {
@@ -199,6 +220,8 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 	} else {
 		user = NewUser(user_id)
 		this.Users[user_id] = user
+		// 发送用户到清道夫
+		this.ScavengerChan[hash_key] <- user
 		users_lock.Unlock()
 		return user, nil
 	}
@@ -209,7 +232,7 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 }
 
 func (this *Channel) DeleteUser(user_id string) (bool, error) {
-	users_lock := this.getLock(user_id)
+	users_lock, _ := this.getLock(user_id)
 	users_lock.Lock()
 
 	if _, ok := this.Users[user_id]; ok {
@@ -347,6 +370,8 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 			user.MessageBuffer.Remove(element)
 		}
 	}
+
+	user.LastUpdate = time.Now().Unix()
 	user.SpinLock.Unlock()
 
 	poll_message := poll_message_pool.Get().(*PollMessage)
@@ -400,6 +425,47 @@ func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 		} else {
 			// channel中不存在用户，暂停500毫秒
 			time.Sleep(500 * time.Millisecond)
+		}
+	}
+}
+
+// 定时清除用户和相关资源
+func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
+	timeout_chan := make(chan bool, 1)
+
+	user_list := make(map[string]*User, 1024)
+
+	go func() {
+		c := time.Tick(1 * time.Second)
+		for _ = range c {
+			timeout_chan <- true
+		}
+	}()
+
+	time.Sleep(5 * time.Second)
+
+	for {
+		select {
+		case user := <-scavenger_chan:
+			utils.Log.Println("Scavenger receive user:", user.ID)
+			user_list[user.ID] = user
+		case _ = <-timeout_chan:
+			if len(user_list) > 0 {
+				for idx := range user_list {
+					now := time.Now().Unix()
+					user := user_list[idx]
+					utils.Log.Println("delay: ", now-user.LastUpdate)
+					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
+						user.SpinLock.Lock()
+						user.MessageBuffer.Init()
+						delete(channel.Users, user.ID)
+						delete(user_list, user.ID)
+						user.SpinLock.Unlock()
+						utils.Log.Println("Scavenger clean user:", user.ID)
+						user_pool.Put(user)
+					}
+				}
+			}
 		}
 	}
 }
