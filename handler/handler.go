@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
 	"github.com/shelmesky/bytepool"
 	isync "github.com/shelmesky/message_service/sync"
 	"github.com/shelmesky/message_service/utils"
@@ -230,15 +229,14 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 // 处理POST消息
 func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
-	var ok bool
 	var channel *Channel
 	var err error
 	var buf []byte
 
-	vars := mux.Vars(req)
-	if channel_name, ok = vars["channel"]; !ok {
-		utils.Log.Printf("[%s] channel name not in url\n", req.RemoteAddr)
-		http.Error(w, "channel name not in url", 400)
+	channel_name = req.Header.Get("channel")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
 		return
 	}
 
@@ -295,21 +293,21 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
 	var user_id string
-	var ok bool
 
 	var message_list []*PostMessage
 	var message_list_raw []*list.Element
 
-	vars := mux.Vars(req)
-	if channel_name, ok = vars["channel"]; !ok {
-		utils.Log.Printf("[%s] channel name not in url\n", req.RemoteAddr)
-		http.Error(w, "channel name not in url", 400)
+	channel_name = req.Header.Get("channel")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
 		return
 	}
 
-	if user_id, ok = vars["user_id"]; !ok {
-		utils.Log.Printf("[%s] user_id not in url\n", req.RemoteAddr)
-		http.Error(w, "user_id name not in url", 400)
+	user_id = req.Header.Get("tourid")
+	if user_id == "" {
+		utils.Log.Printf("[%s] user_id not in header\n", req.RemoteAddr)
+		http.Error(w, "user_id name not in header", 400)
 		return
 	}
 

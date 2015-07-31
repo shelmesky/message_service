@@ -186,8 +186,8 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	router.HandleFunc("/api/{channel}/post", handler.MessagePostHandler).Methods("POST")
-	router.HandleFunc("/api/{channel}/poll/{user_id}", handler.MessagePollHandler).Methods("GET")
+	router.HandleFunc("/api/post", handler.MessagePostHandler).Methods("POST")
+	router.HandleFunc("/api/poll", handler.MessagePollHandler).Methods("GET")
 
 	s.SetKeepAlivesEnabled(false)
 
