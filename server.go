@@ -137,9 +137,9 @@ func signalCallback() {
 func GC() {
 	for {
 		time.Sleep(60 * time.Second)
-		logger.Println("Start GC now...")
+		logger.Println("Start garbage collection...")
 		runtime.GC()
-		logger.Println("End GC now...")
+		logger.Println("End garbage collection...")
 	}
 }
 

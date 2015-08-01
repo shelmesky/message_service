@@ -431,6 +431,7 @@ func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 
 // 定时清除用户和相关资源
 func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
+	var user *User
 	timeout_chan := make(chan bool, 1)
 
 	user_list := make(map[string]*User, 1024)
@@ -453,8 +454,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 			if len(user_list) > 0 {
 				for idx := range user_list {
 					now := time.Now().Unix()
-					user := user_list[idx]
-					//utils.Log.Println("delay: ", now-user.LastUpdate)
+					user = user_list[idx]
 					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
 						user.SpinLock.Lock()
 						user.MessageBuffer.Init()
