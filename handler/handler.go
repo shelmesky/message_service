@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/shelmesky/bytepool"
 	isync "github.com/shelmesky/message_service/sync"
 	"github.com/shelmesky/message_service/utils"
@@ -78,6 +79,11 @@ type PostReply struct {
 	MessageID string `json:"id"`
 }
 
+type AddChannelReply struct {
+	Result int    `json:"result"`
+	Data   string `json:"data"`
+}
+
 func init() {
 	all_channel = new(AllChannel)
 	all_channel.Lock = new(sync.RWMutex)
@@ -141,16 +147,26 @@ func (this *User) GetMessage() {
 func GetChannel(channel_name string) (*Channel, error) {
 	var channel *Channel
 	var ok bool
-	var lock *sync.RWMutex
 
 	all_channel.Lock.RLock()
+	defer all_channel.Lock.RUnlock()
+
 	if channel, ok = all_channel.Channels[channel_name]; ok {
-		all_channel.Lock.RUnlock()
 		return channel, nil
 	}
-	all_channel.Lock.RUnlock()
 
-	if !ok {
+	return channel, fmt.Errorf("Channel [%s] not exists, please create it first.\n", channel_name)
+}
+
+func AddChannel(channel_name string) bool {
+	var lock *sync.RWMutex
+	var channel *Channel
+	var ok bool
+
+	all_channel.Lock.Lock()
+	defer all_channel.Lock.Unlock()
+
+	if channel, ok = all_channel.Channels[channel_name]; !ok {
 		channel = new(Channel)
 
 		// 为每个Channel创建CHANNEL_LOCKS个锁
@@ -166,7 +182,6 @@ func GetChannel(channel_name string) (*Channel, error) {
 
 		go ChannelSender(channel_name, channel.MultiCastChan)
 
-		all_channel.Lock.Lock()
 		all_channel.Channels[channel_name] = channel
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
@@ -177,12 +192,10 @@ func GetChannel(channel_name string) (*Channel, error) {
 			go ChannelScavenger(channel, scavenger_chan)
 		}
 
-		all_channel.Lock.Unlock()
-
-		return channel, nil
+		return true
 	}
 
-	return channel, fmt.Errorf("GetChannel failed!")
+	return false
 }
 
 func (this *Channel) getLock(user_id string) (*sync.RWMutex, uint32) {
@@ -197,12 +210,13 @@ func (this *Channel) GetUser(user_id string) (*User, error) {
 	var ok bool
 
 	users_lock, _ := this.getLock(user_id)
+
 	users_lock.RLock()
+	defer users_lock.RUnlock()
+
 	if user, ok = this.Users[user_id]; ok {
-		users_lock.RUnlock()
 		return user, nil
 	}
-	users_lock.RUnlock()
 
 	return user, fmt.Errorf("can not find user [%s : %s]", this.Name, user_id)
 }
@@ -249,6 +263,33 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	return false, fmt.Errorf("delete user failed: [%s : %s]", this.Name, user_id)
 }
 
+// 处理创建Channel的请求
+func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
+	var add_channel_reply AddChannelReply
+
+	vars := mux.Vars(req)
+	channel_name := vars["channel_name"]
+	result := AddChannel(channel_name)
+
+	if result == true {
+		add_channel_reply.Result = 0
+		add_channel_reply.Data = "create channel successful"
+	} else {
+		add_channel_reply.Result = 1
+		add_channel_reply.Data = "channel already exists"
+	}
+
+	buf, err := json.Marshal(add_channel_reply)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal JSON failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(buf)
+}
+
 // 处理POST消息
 func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
@@ -273,14 +314,14 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	err = json.Unmarshal(body, post_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Unmarshal json failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "Unmarshal json failed", 500)
 		return
 	}
 
 	channel, err = GetChannel(channel_name)
 	if err != nil {
-		utils.Log.Printf("[%s] GetChannel failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-		w.WriteHeader(http.StatusBadRequest)
+		utils.Log.Printf("[%s] GetChannel failed: [%s]\n", req.RemoteAddr, err)
+		http.Error(w, "channel not exists, please create it first", 400)
 		return
 	}
 
@@ -298,7 +339,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	buf, err = json.Marshal(*post_reply)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "Marshal json failed", 500)
 		return
 	}
 
@@ -336,8 +377,8 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel, err := GetChannel(channel_name)
 	if err != nil {
-		utils.Log.Printf("GetChannel failed: [%s], channel: [%s]\n", err, channel_name)
-		http.Error(w, "get channel failed", 500)
+		utils.Log.Printf("[%s] GetChannel failed: [%s]\n", req.RemoteAddr, err)
+		http.Error(w, "channel not exists, please create it first", 400)
 		return
 	}
 
@@ -345,8 +386,8 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		user, err = channel.AddUser(user_id)
 		if err != nil {
-			utils.Log.Printf("[%s] AddUser failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-			w.WriteHeader(http.StatusBadRequest)
+			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
+			http.Error(w, "AddUser failed: user has already exists", 400)
 			return
 		}
 	}
@@ -386,7 +427,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	buf, err := json.Marshal(*poll_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "Marshal json failed", 500)
 		return
 	}
 
@@ -406,14 +447,11 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 	for {
-		channel, err := GetChannel(channel_name)
-		// 如果channel中有用户，则保存消息到用户的消息缓存
+		channel, _ := GetChannel(channel_name)
+		// 如果channel中有用户，或正确获取channel
+		// 则保存消息到用户的消息缓存
 		if len(channel.Users) > 0 {
 			post_message := <-multicast_channel
-			if err != nil {
-				utils.Log.Printf("GetChannel failed: [%s], channel: [%s]\n", err, channel_name)
-				continue
-			}
 
 			for key := range channel.Users {
 				if user, ok := channel.Users[key]; ok {
@@ -423,7 +461,8 @@ func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 				}
 			}
 		} else {
-			// channel中不存在用户，暂停500毫秒
+			// channel中不存在用户，或获取channel失败
+			// 暂停500毫秒
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
