@@ -14,10 +14,10 @@ import (
 
 const (
 	CHANNEL_LOCKS             = 16
-	CHANNEL_SCAVENGER         = 8
+	CHANNEL_SCAVENGER         = 16
 	MULTI_CAST_BUFFER_SIZE    = 4096
 	MESSAGE_LIST_SIZE         = 50
-	DELAY_CLEAN_USER_RESOURCE = 10
+	DELAY_CLEAN_USER_RESOURCE = 3600
 )
 
 var (
@@ -454,7 +454,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 				for idx := range user_list {
 					now := time.Now().Unix()
 					user := user_list[idx]
-					utils.Log.Println("delay: ", now-user.LastUpdate)
+					//utils.Log.Println("delay: ", now-user.LastUpdate)
 					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
 						user.SpinLock.Lock()
 						user.MessageBuffer.Init()
