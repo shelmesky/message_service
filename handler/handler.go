@@ -39,7 +39,8 @@ var (
 )
 
 type AllChannel struct {
-	Lock     *sync.RWMutex
+	RLock    *sync.RWMutex
+	Lock     *sync.Mutex
 	Channels map[string]*Channel
 }
 
@@ -86,7 +87,8 @@ type AddChannelReply struct {
 
 func init() {
 	all_channel = new(AllChannel)
-	all_channel.Lock = new(sync.RWMutex)
+	all_channel.RLock = new(sync.RWMutex)
+	all_channel.Lock = new(sync.Mutex)
 	all_channel.Channels = make(map[string]*Channel, 0)
 
 	post_message_pool = &sync.Pool{
@@ -114,16 +116,6 @@ func init() {
 	}
 }
 
-func ChannelExists(channel_name string) bool {
-	all_channel.Lock.RLock()
-	if _, ok := all_channel.Channels[channel_name]; ok {
-		all_channel.Lock.RUnlock()
-		return true
-	}
-	all_channel.Lock.RUnlock()
-	return false
-}
-
 func NewUser(user_id string) *User {
 	user := user_pool.Get().(*User)
 	user.ID = user_id
@@ -144,21 +136,23 @@ func (this *User) GetMessage() {
 
 // 从all_channel中获取Channel，没有则创建
 // @channel_name: channel的名称
-func GetChannel(channel_name string) (*Channel, error) {
+func GetChannel(channel_name string) *Channel {
 	var channel *Channel
 	var ok bool
 
-	all_channel.Lock.RLock()
-	defer all_channel.Lock.RUnlock()
+	all_channel.RLock.RLock()
+	defer all_channel.RLock.RUnlock()
 
 	if channel, ok = all_channel.Channels[channel_name]; ok {
-		return channel, nil
+		return channel
 	}
 
-	return channel, fmt.Errorf("Channel [%s] not exists, please create it first.\n", channel_name)
+	channel = AddChannel(channel_name)
+
+	return channel
 }
 
-func AddChannel(channel_name string) bool {
+func AddChannel(channel_name string) *Channel {
 	var lock *sync.RWMutex
 	var channel *Channel
 	var ok bool
@@ -167,6 +161,7 @@ func AddChannel(channel_name string) bool {
 	defer all_channel.Lock.Unlock()
 
 	if channel, ok = all_channel.Channels[channel_name]; !ok {
+		utils.Log.Println("Add channel:", channel_name)
 		channel = new(Channel)
 
 		// 为每个Channel创建CHANNEL_LOCKS个锁
@@ -182,8 +177,6 @@ func AddChannel(channel_name string) bool {
 
 		go ChannelSender(channel_name, channel.MultiCastChan)
 
-		all_channel.Channels[channel_name] = channel
-
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
 		for j := 0; j < CHANNEL_SCAVENGER; j++ {
@@ -192,10 +185,11 @@ func AddChannel(channel_name string) bool {
 			go ChannelScavenger(channel, scavenger_chan)
 		}
 
-		return true
+		all_channel.Channels[channel_name] = channel
+		return channel
 	}
 
-	return false
+	return channel
 }
 
 func (this *Channel) getLock(user_id string) (*sync.RWMutex, uint32) {
@@ -269,9 +263,9 @@ func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
 
 	vars := mux.Vars(req)
 	channel_name := vars["channel_name"]
-	result := AddChannel(channel_name)
+	channel := AddChannel(channel_name)
 
-	if result == true {
+	if channel != nil {
 		add_channel_reply.Result = 0
 		add_channel_reply.Data = "create channel successful"
 	} else {
@@ -318,12 +312,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	channel, err = GetChannel(channel_name)
-	if err != nil {
-		utils.Log.Printf("[%s] GetChannel failed: [%s]\n", req.RemoteAddr, err)
-		http.Error(w, "channel not exists, please create it first", 400)
-		return
-	}
+	channel = GetChannel(channel_name)
 
 	message_id := utils.MakeRandomID()
 	post_message.MessageID = message_id
@@ -375,20 +364,13 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	channel, err := GetChannel(channel_name)
-	if err != nil {
-		utils.Log.Printf("[%s] GetChannel failed: [%s]\n", req.RemoteAddr, err)
-		http.Error(w, "channel not exists, please create it first", 400)
-		return
-	}
+	channel := GetChannel(channel_name)
 
 	user, err := channel.GetUser(user_id)
 	if err != nil {
 		user, err = channel.AddUser(user_id)
 		if err != nil {
 			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
-			http.Error(w, "AddUser failed: user has already exists", 400)
-			return
 		}
 	}
 
@@ -447,7 +429,8 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 	for {
-		channel, _ := GetChannel(channel_name)
+		channel := GetChannel(channel_name)
+
 		// 如果channel中有用户，或正确获取channel
 		// 则保存消息到用户的消息缓存
 		if len(channel.Users) > 0 {
