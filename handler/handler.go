@@ -257,6 +257,13 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	return false, fmt.Errorf("delete user failed: [%s : %s]", this.Name, user_id)
 }
 
+func GlobalOptionsHandler(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+}
+
 // 处理创建Channel的请求
 func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
 	var add_channel_reply AddChannelReply
@@ -290,6 +297,11 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	var channel *Channel
 	var err error
 	var buf []byte
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -349,6 +361,11 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	var message_list []*PostMessage
 	var message_list_raw []*list.Element
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {

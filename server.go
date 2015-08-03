@@ -188,6 +188,8 @@ func main() {
 
 	router.HandleFunc("/api/post", handler.MessagePostHandler).Methods("POST")
 	router.HandleFunc("/api/poll", handler.MessagePollHandler).Methods("GET")
+	router.HandleFunc("/api/post", handler.GlobalOptionsHandler).Methods("POST")
+	router.HandleFunc("/api/poll", handler.GlobalOptionsHandler).Methods("OPTIONS")
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
 
 	s.SetKeepAlivesEnabled(false)
