@@ -437,7 +437,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		utils.Log.Printf("Send message to [%s], message: [%s], channel: [%s], user_id: [%s]\n", req.RemoteAddr, string(buf), channel_name, user_id)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Write(buf)
 
 	for idx := range message_list {
