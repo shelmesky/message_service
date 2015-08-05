@@ -1,13 +1,3 @@
-// 通过channel这种close broadcast机制，我们可以非常方便的实现一个timer，
-// timer有一个channel ch，所有需要在某一个时间 “T” 收到通知的goroutine都可以尝试读该ch，
-// 当T到达时候，close该ch，那么所有的goroutine都能收到该事件了。
-// timingwheel的使用很简单，首先我们创建一个wheel
-// 这里我们创建了一个timingwheel，精度是1s，最大的超时等待时间为3600s
-// w := timingwheel.NewTimingWheel(1 * time.Second, 3600)
-// 等待10s
-// <-w.After(10 * time.Second)
-// 因为timingwheel只有一个1s的ticker，并且只创建了3600个channel，系统开销很小。
-
 package utils
 
 import (
@@ -127,37 +117,3 @@ func (w *TimingWheel) onTicker() {
 	// 所以这里起到了一个通知等待在这个channel上的所有goroutine的作用
 	close(lastC)
 }
-
-/*
-func main() {
-	var wg sync.WaitGroup
-	var max_waiting int = 120
-	var num_gorouting int = 1000
-
-	rand.Seed(79)
-	// 初始化时间轮定时器，精度为1秒，最大可等待120秒
-	wheel := NewTimingWheel(1*time.Second, max_waiting)
-
-	// 启动1000个goroutine
-	for i := 0; i < num_gorouting; i++ {
-		wg.Add(1)
-		go func(count int) {
-			// 随机定时0~120秒
-			rand_sleep := rand.Int31() % max_waiting
-			sleep := time.Duration(rand_sleep) * time.Second
-
-			fmt.Printf("%d wait for %s seconds\n", count, sleep.String())
-			<-wheel.After(sleep)
-			fmt.Printf("%d was done, waited for %s seconds\n", count, sleep.String())
-
-			wg.Done()
-		}(i)
-	}
-
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
-
-	wg.Wait()
-}
-*/
