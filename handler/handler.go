@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS             = 16
-	CHANNEL_SCAVENGER         = 16
+	CHANNEL_LOCKS             = 8
+	CHANNEL_SCAVENGER         = 8
 	MULTI_CAST_BUFFER_SIZE    = 4096
 	MESSAGE_LIST_SIZE         = 50
 	DELAY_CLEAN_USER_RESOURCE = 3600
@@ -32,8 +32,11 @@ var (
 	user_spinlock_pool       *sync.Pool
 	user_message_buffer_pool *sync.Pool
 
-	// byte pool: 8K []byte each of which can hold 8K of data
-	byte_pool = bytepool.New(8192, 8192)
+	// byte pool: 4K []byte each of which can hold 8K of data
+	byte_pool = bytepool.New(4096, 8192)
+
+	// timewheel
+	wheel = utils.NewTimingWheel(1*time.Second, 60)
 
 	ServerDebug bool
 )
@@ -471,16 +474,8 @@ func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 // 定时清除用户和相关资源
 func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 	var user *User
-	timeout_chan := make(chan bool, 1)
 
 	user_list := make(map[string]*User, 1024)
-
-	go func() {
-		c := time.Tick(1 * time.Second)
-		for _ = range c {
-			timeout_chan <- true
-		}
-	}()
 
 	time.Sleep(5 * time.Second)
 
@@ -489,7 +484,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 		case user := <-scavenger_chan:
 			utils.Log.Println("Scavenger receive user:", user.ID)
 			user_list[user.ID] = user
-		case _ = <-timeout_chan:
+		case _ = <-wheel.After(2 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
 					now := time.Now().Unix()
