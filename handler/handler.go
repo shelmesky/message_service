@@ -332,9 +332,8 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	message_id := utils.MakeRandomID()
 	post_message.MessageID = message_id
 
-	if post_message.ToUser == "" {
-		channel.MultiCastChan <- post_message
-	}
+	// send message to buffered channel
+	channel.MultiCastChan <- post_message
 
 	post_reply := post_reply_pool.Get().(*PostReply)
 	post_reply.Result = 0
@@ -456,8 +455,18 @@ func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
 		if len(channel.Users) > 0 {
 			post_message := <-multicast_channel
 
-			for key := range channel.Users {
-				if user, ok := channel.Users[key]; ok {
+			userid := post_message.ToUser
+
+			if userid == "" {
+				for key := range channel.Users {
+					if user, ok := channel.Users[key]; ok {
+						user.SpinLock.Lock()
+						user.MessageBuffer.PushBack(post_message)
+						user.SpinLock.Unlock()
+					}
+				}
+			} else {
+				if user, ok := channel.Users[userid]; ok {
 					user.SpinLock.Lock()
 					user.MessageBuffer.PushBack(post_message)
 					user.SpinLock.Unlock()
