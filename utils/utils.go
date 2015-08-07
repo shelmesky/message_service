@@ -14,6 +14,11 @@ var (
 	Log *log.Logger
 )
 
+func init() {
+	nano := time.Now().UnixNano()
+	rand.Seed(nano)
+}
+
 func GenKey(key string) uint32 {
 	bKey := hashDigest(key)
 	return hashVal(bKey[0:4])
@@ -42,7 +47,6 @@ func MD5(text string) string {
 // 获取随机id字符串
 func MakeRandomID() string {
 	nano := time.Now().UnixNano()
-	rand.Seed(nano)
 	rndNum := rand.Int63()
 
 	md5_nano := MD5(strconv.FormatInt(nano, 10))
