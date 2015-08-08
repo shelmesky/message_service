@@ -16,7 +16,7 @@ import (
 const (
 	CHANNEL_LOCKS             = 8
 	CHANNEL_SCAVENGER         = 8
-	MULTI_CAST_BUFFER_SIZE    = 4096
+	MULTI_CAST_BUFFER_SIZE    = 1 << 19
 	MESSAGE_LIST_SIZE         = 50
 	DELAY_CLEAN_USER_RESOURCE = 3600
 )
@@ -337,7 +337,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	select {
 	case channel.MultiCastChan <- post_message:
 		send_finished = true
-	case _ = <-wheel.After(100 * time.Millisecond):
+	case _ = <-wheel.After(20 * time.Millisecond):
 		utils.Log.Println("message buffer of channel is full, channel:", channel_name)
 		send_finished = false
 	}
