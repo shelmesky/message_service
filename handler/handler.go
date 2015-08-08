@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/pquerna/ffjson/ffjson"
 	"github.com/shelmesky/bytepool"
+	"github.com/shelmesky/message_service/lib"
 	isync "github.com/shelmesky/message_service/sync"
 	"github.com/shelmesky/message_service/utils"
 	"net/http"
@@ -52,7 +54,7 @@ type Channel struct {
 	Users         map[string]*User
 	UsersLock     []*sync.RWMutex
 	ScavengerChan []chan *User
-	MultiCastChan chan *PostMessage
+	MultiCastChan chan *lib.PostMessage
 	Count         int64
 	//SingleCastChan chan *PostMessage
 }
@@ -63,24 +65,6 @@ type User struct {
 	LastUpdate    int64
 	SpinLock      *isync.SpinLock
 	MessageBuffer *list.List
-}
-
-type PollMessage struct {
-	Result        int            `json:"result"`
-	MessageLength int            `json:"length"`
-	MessageList   []*PostMessage `json:"message_list"`
-}
-
-type PostMessage struct {
-	MessageType string      `json:"type"`
-	MessageID   string      `json:"id"`
-	ToUser      string      `json:"to_user"`
-	PayLoad     interface{} `json:"payload"`
-}
-
-type PostReply struct {
-	Result    int    `json:"result"`
-	MessageID string `json:"id"`
 }
 
 type AddChannelReply struct {
@@ -96,19 +80,19 @@ func init() {
 
 	post_message_pool = &sync.Pool{
 		New: func() interface{} {
-			return new(PostMessage)
+			return new(lib.PostMessage)
 		},
 	}
 
 	post_reply_pool = &sync.Pool{
 		New: func() interface{} {
-			return new(PostReply)
+			return new(lib.PostReply)
 		},
 	}
 
 	poll_message_pool = &sync.Pool{
 		New: func() interface{} {
-			return new(PollMessage)
+			return new(lib.PollMessage)
 		},
 	}
 
@@ -131,7 +115,7 @@ func NewUser(user_id string) *User {
 func (this *User) Update() {
 }
 
-func (this *User) PushMessage(post_message *PostMessage) {
+func (this *User) PushMessage(post_message *lib.PostMessage) {
 }
 
 func (this *User) GetMessage() {
@@ -173,7 +157,7 @@ func AddChannel(channel_name string) *Channel {
 			lock = new(sync.RWMutex)
 			channel.UsersLock = append(channel.UsersLock, lock)
 		}
-		channel.MultiCastChan = make(chan *PostMessage, MULTI_CAST_BUFFER_SIZE)
+		channel.MultiCastChan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.Count = 0
@@ -319,8 +303,8 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	buffer.ReadFrom(req.Body)
 	body := buffer.Bytes()
 
-	post_message := post_message_pool.Get().(*PostMessage)
-	err = json.Unmarshal(body, post_message)
+	post_message := post_message_pool.Get().(*lib.PostMessage)
+	err = ffjson.Unmarshal(body, post_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Unmarshal json failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		http.Error(w, "Unmarshal json failed", 500)
@@ -342,7 +326,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		send_finished = false
 	}
 
-	post_reply := post_reply_pool.Get().(*PostReply)
+	post_reply := post_reply_pool.Get().(*lib.PostReply)
 	if send_finished {
 		post_reply.Result = 0
 		post_reply.MessageID = message_id
@@ -351,7 +335,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		post_reply.MessageID = "message buffer of channel is full."
 	}
 
-	buf, err = json.Marshal(*post_reply)
+	buf, err = ffjson.Marshal(*post_reply)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		http.Error(w, "Marshal json failed", 500)
@@ -366,6 +350,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 
 	post_reply_pool.Put(post_reply)
+	ffjson.Pool(buf)
 }
 
 // 处理Poll消息
@@ -373,7 +358,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	var channel_name string
 	var user_id string
 
-	var message_list []*PostMessage
+	var message_list []*lib.PostMessage
 	var message_list_raw []*list.Element
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -412,7 +397,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 			if message_list_size == MESSAGE_LIST_SIZE {
 				break
 			}
-			if post_message, ok := e.Value.(*PostMessage); ok {
+			if post_message, ok := e.Value.(*lib.PostMessage); ok {
 				message_list = append(message_list, post_message)
 				message_list_raw = append(message_list_raw, e)
 				message_list_size += 1
@@ -428,16 +413,16 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	user.LastUpdate = time.Now().Unix()
 	user.SpinLock.Unlock()
 
-	poll_message := poll_message_pool.Get().(*PollMessage)
+	poll_message := poll_message_pool.Get().(*lib.PollMessage)
 	poll_message.Result = 0
 	poll_message.MessageLength = len(message_list)
 	if len(message_list) == 0 {
-		poll_message.MessageList = []*PostMessage{}
+		poll_message.MessageList = []*lib.PostMessage{}
 	} else {
 		poll_message.MessageList = message_list
 	}
 
-	buf, err := json.Marshal(*poll_message)
+	buf, err := ffjson.Marshal(*poll_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
 		http.Error(w, "Marshal json failed", 500)
@@ -456,9 +441,10 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	poll_message_pool.Put(poll_message)
+	ffjson.Pool(buf)
 }
 
-func ChannelSender(channel_name string, multicast_channel chan *PostMessage) {
+func ChannelSender(channel_name string, multicast_channel chan *lib.PostMessage) {
 	for {
 		channel := GetChannel(channel_name)
 
