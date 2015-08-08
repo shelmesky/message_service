@@ -332,12 +332,24 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	message_id := utils.MakeRandomID()
 	post_message.MessageID = message_id
 
+	send_finished := false
 	// send message to buffered channel
-	channel.MultiCastChan <- post_message
+	select {
+	case channel.MultiCastChan <- post_message:
+		send_finished = true
+	case _ = <-wheel.After(100 * time.Millisecond):
+		utils.Log.Println("message buffer of channel is full, channel:", channel_name)
+		send_finished = false
+	}
 
 	post_reply := post_reply_pool.Get().(*PostReply)
-	post_reply.Result = 0
-	post_reply.MessageID = message_id
+	if send_finished {
+		post_reply.Result = 0
+		post_reply.MessageID = message_id
+	} else {
+		post_reply.Result = 1
+		post_reply.MessageID = "message buffer of channel is full."
+	}
 
 	buf, err = json.Marshal(*post_reply)
 	if err != nil {
