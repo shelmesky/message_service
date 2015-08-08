@@ -29,6 +29,9 @@ var (
 	EnableServerProfile  = flag.Bool("enable_profile", true, "Start web profile interface (true or false).")
 	LogToStdout          = flag.Bool("log_to_stdout", false, "Print log to standard output (true or false).")
 	ServerDebug          = flag.Bool("server_debug", false, "Print debug information")
+	ForceGCPeriod        = flag.Int("force_gc_period", 0, "Period of force GC, default: 60 seconds")
+	ForceGC              = flag.Bool("force_gc", false, "Run runtime.GC in force")
+	ForceFreeOSMemory    = flag.Bool("force_free_os_memory", false, "Run debug.FreeOSMemory in force")
 
 	Config GlobalConfig
 )
@@ -37,9 +40,12 @@ type GlobalConfig struct {
 	LogFile              string `json:"log_file"`
 	ListenAddress        string `json:"listen_address"`
 	ProfileListenAddress string `json:"profile_listen_address"`
+	ServerDebug          bool   `json:"server_debug"`
+	ForceGCPeriod        int    `json:"force_gc_period"`
+	ForceGC              bool   `json:"force_gc"`
+	ForceFreeOSMemory    bool   `json:"force_free_os_memory"`
 	EnableServerProfile  bool
 	LogToStdout          bool
-	ServerDebug          bool
 }
 
 func init() {
@@ -95,6 +101,14 @@ func ExtraInit() {
 		}
 		Config.ProfileListenAddress = *ProfileListenAddress
 
+		if *ForceGCPeriod == 0 {
+			*ForceGCPeriod = 60
+		}
+		Config.ForceGCPeriod = *ForceGCPeriod
+
+		Config.ForceGC = *ForceGC
+		Config.ForceFreeOSMemory = *ForceFreeOSMemory
+
 	} else {
 		data, err := ioutil.ReadFile(*ConfigFile)
 		if err != nil {
@@ -118,6 +132,18 @@ func ExtraInit() {
 		if *ProfileListenAddress != "" {
 			Config.ProfileListenAddress = *ProfileListenAddress
 		}
+
+		if *ForceGCPeriod > 0 {
+			Config.ForceGCPeriod = *ForceGCPeriod
+		}
+
+		if *ForceGC != false {
+			Config.ForceGC = *ForceGC
+		}
+
+		if *ForceFreeOSMemory != false {
+			Config.ForceFreeOSMemory = *ForceFreeOSMemory
+		}
 	}
 }
 
@@ -136,10 +162,16 @@ func signalCallback() {
 
 func GC() {
 	for {
-		time.Sleep(60 * time.Second)
-		logger.Println("Start garbage collection...")
-		runtime.GC()
-		logger.Println("End garbage collection...")
+		time.Sleep(time.Duration(Config.ForceGCPeriod) * time.Second)
+		if Config.ForceGC == true {
+			logger.Println("Start garbage collection...")
+			runtime.GC()
+			if Config.ForceFreeOSMemory == true {
+				logger.Println("Free Memory to OS...")
+				debug.FreeOSMemory()
+			}
+			logger.Println("End garbage collection...")
+		}
 	}
 }
 
@@ -153,7 +185,6 @@ func main() {
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	// 每60秒GC一次
 	go GC()
 
 	// HOLD住POSIX SIGNAL
