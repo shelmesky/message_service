@@ -1,3 +1,4 @@
 *.log
 server
 message_service
+nohup.out
