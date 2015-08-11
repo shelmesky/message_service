@@ -37,7 +37,7 @@ var (
 	// byte pool: 4K []byte each of which can hold 8K of data
 	byte_pool = bytepool.New(4096, 8192)
 
-	// timewheel
+	// timingwheel
 	wheel = utils.NewTimingWheel(1*time.Second, 60)
 
 	ServerDebug bool
