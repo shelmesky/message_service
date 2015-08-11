@@ -10,6 +10,7 @@ import (
 	"github.com/shelmesky/message_service/lib"
 	isync "github.com/shelmesky/message_service/sync"
 	"github.com/shelmesky/message_service/utils"
+	"io/ioutil"
 	"net/http"
 	"sync"
 	"time"
@@ -41,6 +42,8 @@ var (
 	wheel = utils.NewTimingWheel(1*time.Second, 60)
 
 	ServerDebug bool
+
+	Config *lib.GlobalConfig
 )
 
 type AllChannel struct {
@@ -68,6 +71,17 @@ type User struct {
 }
 
 type AddChannelReply struct {
+	Result int    `json:"result"`
+	Data   string `json:"data"`
+}
+
+// 修改全局配置的请求
+type ConfigAction struct {
+	ActionType string `json:"action_type"`
+	Operation  string `json:"operation"`
+}
+
+type ConfigActionReply struct {
 	Result int    `json:"result"`
 	Data   string `json:"data"`
 }
@@ -249,6 +263,99 @@ func GlobalOptionsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
+}
+
+// 处理实时修改配置的请求
+func SysConfigHandler(w http.ResponseWriter, req *http.Request) {
+	var config_action ConfigAction
+	var config_action_reply ConfigActionReply
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+	buf, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		utils.Log.Printf("Read data from: [%s] failed.\n", req.RemoteAddr)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(buf, &config_action)
+	if err != nil {
+		utils.Log.Printf("[%s] Unmarshal json failed.\n", req.RemoteAddr)
+		http.Error(w, "Unmarshal json failed.", 500)
+		return
+	}
+
+	if config_action.ActionType != "set_gc" && config_action.ActionType != "set_gc_free_memory" {
+		config_action_reply.Result = 1
+		config_action_reply.Data = "bad action type"
+		goto end
+	}
+
+	Config.Lock.Lock()
+	defer Config.Lock.Unlock()
+
+	if config_action.ActionType == "set_gc" {
+		if config_action.Operation == "enable" {
+			if Config.ForceGC == true {
+				config_action_reply.Result = 1
+				config_action_reply.Data = "ForceGC is already enabled"
+			} else {
+				Config.ForceGC = true
+				config_action_reply.Result = 0
+				config_action_reply.Data = "Enable ForceGC success"
+			}
+		}
+
+		if config_action.Operation == "disable" {
+			if Config.ForceGC == false {
+				config_action_reply.Result = 1
+				config_action_reply.Data = "ForceGC is already disabled"
+			} else {
+				Config.ForceGC = false
+				config_action_reply.Result = 0
+				config_action_reply.Data = "Disable ForceGC success"
+			}
+		}
+	}
+
+	if config_action.ActionType == "set_gc_free_memory" {
+		if config_action.Operation == "enable" {
+			if Config.ForceFreeOSMemory == true {
+				config_action_reply.Result = 1
+				config_action_reply.Data = "ForceFreeOSMemory is already enabled"
+			} else {
+				config_action_reply.Result = 0
+				config_action_reply.Data = "Enable ForceFreeOSMemory success"
+				Config.ForceFreeOSMemory = true
+			}
+		}
+
+		if config_action.Operation == "disable" {
+			if Config.ForceFreeOSMemory == false {
+				config_action_reply.Result = 1
+				config_action_reply.Data = "ForceFreeOSMemory is already disabled"
+			} else {
+				config_action_reply.Result = 0
+				config_action_reply.Data = "Disable ForceFreeOSMemory success"
+				Config.ForceFreeOSMemory = false
+			}
+		}
+	}
+
+end:
+	buf, err = json.Marshal(config_action_reply)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal json failed.\n", req.RemoteAddr)
+		http.Error(w, "Marshal json failed.", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(buf)
 }
 
 // 处理创建Channel的请求

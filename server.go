@@ -5,6 +5,7 @@ import (
 	"flag"
 	"github.com/gorilla/mux"
 	"github.com/shelmesky/message_service/handler"
+	"github.com/shelmesky/message_service/lib"
 	"github.com/shelmesky/message_service/utils"
 	"io/ioutil"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -33,27 +35,20 @@ var (
 	ForceGC              = flag.Bool("force_gc", false, "Run runtime.GC in force")
 	ForceFreeOSMemory    = flag.Bool("force_free_os_memory", false, "Run debug.FreeOSMemory in force")
 
-	Config GlobalConfig
+	Config lib.GlobalConfig
 )
-
-type GlobalConfig struct {
-	LogFile              string `json:"log_file"`
-	ListenAddress        string `json:"listen_address"`
-	ProfileListenAddress string `json:"profile_listen_address"`
-	ServerDebug          bool   `json:"server_debug"`
-	ForceGCPeriod        int    `json:"force_gc_period"`
-	ForceGC              bool   `json:"force_gc"`
-	ForceFreeOSMemory    bool   `json:"force_free_os_memory"`
-	EnableServerProfile  bool
-	LogToStdout          bool
-}
 
 func init() {
 	var log_file *os.File
 	var err error
 
+	Config.Lock = new(sync.Mutex)
+
 	flag.Parse()
 	ExtraInit()
+
+	// set config in handler
+	handler.Config = &Config
 
 	if !(*LogToStdout) {
 		// init logging
@@ -222,6 +217,7 @@ func main() {
 	router.HandleFunc("/api/post", handler.GlobalOptionsHandler).Methods("POST")
 	router.HandleFunc("/api/poll", handler.GlobalOptionsHandler).Methods("OPTIONS")
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
+	router.HandleFunc("/api/sys/config", handler.SysConfigHandler).Methods("POST")
 
 	s.SetKeepAlivesEnabled(false)
 
