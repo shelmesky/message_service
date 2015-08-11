@@ -50,7 +50,7 @@ func init() {
 	// set config in handler
 	handler.Config = &Config
 
-	if *LogToStdout {
+	if !(*LogToStdout) {
 		// init logging
 		log_file, err = os.OpenFile(*LogFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 		if err != nil {
