@@ -174,11 +174,11 @@ func GC() {
 		if Config.ForceGC == true {
 			logger.Println("Start garbage collection...")
 			runtime.GC()
-			if Config.ForceFreeOSMemory == true {
-				logger.Println("Free Memory to OS...")
-				debug.FreeOSMemory()
-			}
 			logger.Println("End garbage collection...")
+		}
+		if Config.ForceFreeOSMemory == true {
+			logger.Println("Free Memory to OS...")
+			debug.FreeOSMemory()
 		}
 	}
 }
