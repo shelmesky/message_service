@@ -232,7 +232,6 @@ func main() {
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
 	router.HandleFunc("/api/sys/config", handler.SysConfigHandler).Methods("POST")
 
-	utils.Log.Println("######", Config.KeepAlive)
 	s.SetKeepAlivesEnabled(Config.KeepAlive)
 
 	logger.Printf("Server [PID: %d] listen on [%s]\n", os.Getpid(), Config.ListenAddress)
