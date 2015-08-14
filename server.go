@@ -34,6 +34,8 @@ var (
 	ForceGCPeriod        = flag.Int("force_gc_period", 0, "Period of force GC, default: 60 seconds")
 	ForceGC              = flag.Bool("force_gc", false, "Run runtime.GC in force")
 	ForceFreeOSMemory    = flag.Bool("force_free_os_memory", false, "Run debug.FreeOSMemory in force")
+	KeepAlive            = flag.Bool("keepalive", true, "Enable HTTP Keepalive, default: true")
+	PollMessageSize      = flag.Int("poll_message_size", 50, "Size of the poll's message size")
 
 	Config lib.GlobalConfig
 )
@@ -104,6 +106,9 @@ func ExtraInit() {
 		Config.ForceGC = *ForceGC
 		Config.ForceFreeOSMemory = *ForceFreeOSMemory
 
+		Config.KeepAlive = *KeepAlive
+		Config.PollMessageSize = *PollMessageSize
+
 	} else {
 		data, err := ioutil.ReadFile(*ConfigFile)
 		if err != nil {
@@ -138,6 +143,14 @@ func ExtraInit() {
 
 		if *ForceFreeOSMemory != false {
 			Config.ForceFreeOSMemory = *ForceFreeOSMemory
+		}
+
+		if *KeepAlive != false {
+			Config.KeepAlive = *KeepAlive
+		}
+
+		if *PollMessageSize > 0 {
+			Config.PollMessageSize = *PollMessageSize
 		}
 	}
 }
@@ -219,7 +232,8 @@ func main() {
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
 	router.HandleFunc("/api/sys/config", handler.SysConfigHandler).Methods("POST")
 
-	s.SetKeepAlivesEnabled(false)
+	utils.Log.Println("######", Config.KeepAlive)
+	s.SetKeepAlivesEnabled(Config.KeepAlive)
 
 	logger.Printf("Server [PID: %d] listen on [%s]\n", os.Getpid(), Config.ListenAddress)
 	logger.Fatal(s.ListenAndServe())

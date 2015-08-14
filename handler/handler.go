@@ -500,7 +500,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	user.SpinLock.Lock()
 	if user.MessageBuffer != nil {
 		for e := user.MessageBuffer.Front(); e != nil; e = e.Next() {
-			if message_list_size == MESSAGE_LIST_SIZE {
+			if message_list_size == Config.PollMessageSize {
 				break
 			}
 			if post_message, ok := e.Value.(*lib.PostMessage); ok {

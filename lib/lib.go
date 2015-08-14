@@ -12,6 +12,8 @@ type GlobalConfig struct {
 	ForceGCPeriod        int    `json:"force_gc_period"`
 	ForceGC              bool   `json:"force_gc"`
 	ForceFreeOSMemory    bool   `json:"force_free_os_memory"`
+	KeepAlive            bool   `json:"keepalive"`
+	PollMessageSize      int    `json:"poll_message_size"`
 	EnableServerProfile  bool
 	LogToStdout          bool
 	Lock                 *sync.Mutex
