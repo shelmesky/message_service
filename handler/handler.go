@@ -28,8 +28,6 @@ var (
 	all_channel *AllChannel
 
 	// object pool
-	post_message_pool        *sync.Pool
-	post_reply_pool          *sync.Pool
 	poll_message_pool        *sync.Pool
 	user_pool                *sync.Pool
 	user_spinlock_pool       *sync.Pool
@@ -53,12 +51,15 @@ type AllChannel struct {
 }
 
 type Channel struct {
-	Name          string
-	Users         map[string]*User
-	UsersLock     []*sync.RWMutex
-	ScavengerChan []chan *User
-	MultiCastChan chan *lib.PostMessage
-	Count         int64
+	Name            string
+	Users           map[string]*User
+	UsersLock       []*sync.RWMutex
+	ScavengerChan   []chan *User
+	MultiCastChan   chan *lib.PostMessage
+	Count           int64
+	PostMessagePool *sync.Pool
+	PostReplyPool   *sync.Pool
+	PollMessagePool *sync.Pool
 	//SingleCastChan chan *PostMessage
 }
 
@@ -91,30 +92,6 @@ func init() {
 	all_channel.RLock = new(sync.RWMutex)
 	all_channel.Lock = new(sync.Mutex)
 	all_channel.Channels = make(map[string]*Channel, 0)
-
-	post_message_pool = &sync.Pool{
-		New: func() interface{} {
-			return new(lib.PostMessage)
-		},
-	}
-
-	post_reply_pool = &sync.Pool{
-		New: func() interface{} {
-			return new(lib.PostReply)
-		},
-	}
-
-	poll_message_pool = &sync.Pool{
-		New: func() interface{} {
-			return new(lib.PollMessage)
-		},
-	}
-
-	user_pool = &sync.Pool{
-		New: func() interface{} {
-			return new(User)
-		},
-	}
 }
 
 func NewUser(user_id string) *User {
@@ -184,6 +161,24 @@ func AddChannel(channel_name string) *Channel {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
 			go ChannelScavenger(channel, scavenger_chan)
+		}
+
+		channel.PostMessagePool = &sync.Pool{
+			New: func() interface{} {
+				return new(lib.PostMessage)
+			},
+		}
+
+		channel.PostReplyPool = &sync.Pool{
+			New: func() interface{} {
+				return new(lib.PostReply)
+			},
+		}
+
+		channel.PollMessagePool = &sync.Pool{
+			New: func() interface{} {
+				return new(lib.PollMessage)
+			},
 		}
 
 		all_channel.Channels[channel_name] = channel
@@ -410,7 +405,9 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	buffer.ReadFrom(req.Body)
 	body := buffer.Bytes()
 
-	post_message := post_message_pool.Get().(*lib.PostMessage)
+	channel = GetChannel(channel_name)
+
+	post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
 
 	// clear content of post_message
 	post_message.MessageType = ""
@@ -425,8 +422,6 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	channel = GetChannel(channel_name)
-
 	message_id := utils.MakeRandomID()
 	post_message.MessageID = message_id
 
@@ -440,7 +435,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		send_finished = false
 	}
 
-	post_reply := post_reply_pool.Get().(*lib.PostReply)
+	post_reply := channel.PostReplyPool.Get().(*lib.PostReply)
 	if send_finished {
 		post_reply.Result = 0
 		post_reply.MessageID = message_id
@@ -463,7 +458,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
 
-	post_reply_pool.Put(post_reply)
+	channel.PostReplyPool.Put(post_reply)
 	ffjson.Pool(buf)
 }
 
@@ -526,7 +521,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	user.LastUpdate = time.Now().Unix()
 	user.SpinLock.Unlock()
 
-	poll_message := poll_message_pool.Get().(*lib.PollMessage)
+	poll_message := channel.PollMessagePool.Get().(*lib.PollMessage)
 	poll_message.Result = 0
 	poll_message.MessageLength = len(message_list)
 	if len(message_list) == 0 {
@@ -549,11 +544,13 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Write(buf)
 
+	user.SpinLock.Lock()
 	for idx := range message_list {
-		post_message_pool.Put(message_list[idx])
+		channel.PostMessagePool.Put(message_list[idx])
 	}
+	user.SpinLock.Unlock()
 
-	poll_message_pool.Put(poll_message)
+	channel.PollMessagePool.Put(poll_message)
 	ffjson.Pool(buf)
 }
 
