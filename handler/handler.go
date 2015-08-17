@@ -411,6 +411,13 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	body := buffer.Bytes()
 
 	post_message := post_message_pool.Get().(*lib.PostMessage)
+
+	// clear content of post_message
+	post_message.MessageType = ""
+	post_message.MessageID = ""
+	post_message.ToUser = ""
+	post_message.PayLoad = ""
+
 	err = ffjson.Unmarshal(body, post_message)
 	if err != nil {
 		utils.Log.Printf("[%s] Unmarshal json failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
