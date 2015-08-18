@@ -27,12 +27,6 @@ const (
 var (
 	all_channel *AllChannel
 
-	// object pool
-	poll_message_pool        *sync.Pool
-	user_pool                *sync.Pool
-	user_spinlock_pool       *sync.Pool
-	user_message_buffer_pool *sync.Pool
-
 	// byte pool: 4K []byte each of which can hold 8K of data
 	byte_pool = bytepool.New(4096, 8192)
 
@@ -95,7 +89,7 @@ func init() {
 }
 
 func NewUser(user_id string) *User {
-	user := user_pool.Get().(*User)
+	user := new(User)
 	user.ID = user_id
 	user.SpinLock = new(isync.SpinLock)
 	user.MessageBuffer = list.New()
@@ -613,7 +607,6 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 						delete(user_list, user.ID)
 						user.SpinLock.Unlock()
 						utils.Log.Println("Scavenger clean user:", user.ID)
-						user_pool.Put(user)
 					}
 				}
 			}
