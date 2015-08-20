@@ -204,7 +204,22 @@ func main() {
 		syscall.SIGQUIT,
 		syscall.SIGPIPE,
 		syscall.SIGALRM,
-		syscall.SIGPIPE)
+		syscall.SIGPIPE,
+		syscall.SIGBUS,
+		syscall.SIGCHLD,
+		syscall.SIGCONT,
+		syscall.SIGFPE,
+		syscall.SIGILL,
+		syscall.SIGIO,
+		syscall.SIGIOT,
+		syscall.SIGPROF,
+		syscall.SIGSEGV,
+		syscall.SIGSTOP,
+		syscall.SIGSYS,
+		syscall.SIGTRAP,
+		syscall.SIGURG,
+		syscall.SIGUSR1,
+		syscall.SIGUSR2)
 
 	go signalCallback()
 
