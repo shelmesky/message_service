@@ -89,12 +89,12 @@ func ExtraInit() {
 		Config.LogFile = *LogFile
 
 		if *ListenAddress == "" {
-			*ListenAddress = "0.0.0.0:34569"
+			*ListenAddress = "0.0.0.0:54569"
 		}
 		Config.ListenAddress = *ListenAddress
 
 		if *ProfileListenAddress == "" {
-			*ProfileListenAddress = "0.0.0.0:34570"
+			*ProfileListenAddress = "0.0.0.0:54570"
 		}
 		Config.ProfileListenAddress = *ProfileListenAddress
 
