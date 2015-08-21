@@ -401,7 +401,8 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel = GetChannel(channel_name)
 
-	post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+	//post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+	post_message := new(lib.PostMessage)
 
 	// clear content of post_message
 	post_message.MessageType = ""
