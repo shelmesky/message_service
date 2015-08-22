@@ -463,7 +463,6 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	var user_id string
 
 	var message_list []*lib.PostMessage
-	var message_list_raw []*list.Element
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -495,21 +494,19 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	message_list_size := 0
 	user.SpinLock.Lock()
+
 	if user.MessageBuffer != nil {
-		for e := user.MessageBuffer.Front(); e != nil; e = e.Next() {
-			if message_list_size == Config.PollMessageSize {
+		for i := 0; i < Config.PollMessageSize; i++ {
+			if user.MessageBuffer.Len() == 0 {
 				break
 			}
-			if post_message, ok := e.Value.(*lib.PostMessage); ok {
-				message_list = append(message_list, post_message)
-				message_list_raw = append(message_list_raw, e)
-				message_list_size += 1
+			e := user.MessageBuffer.Front()
+			if e != nil {
+				if post_message, ok := user.MessageBuffer.Remove(e).(*lib.PostMessage); ok {
+					message_list = append(message_list, post_message)
+					message_list_size += 1
+				}
 			}
-		}
-
-		for idx := range message_list_raw {
-			element := message_list_raw[idx]
-			user.MessageBuffer.Remove(element)
 		}
 	}
 
@@ -539,11 +536,9 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Write(buf)
 
-	user.SpinLock.Lock()
 	for idx := range message_list {
 		channel.PostMessagePool.Put(message_list[idx])
 	}
-	user.SpinLock.Unlock()
 
 	channel.PollMessagePool.Put(poll_message)
 	ffjson.Pool(buf)
