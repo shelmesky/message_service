@@ -20,7 +20,6 @@ const (
 	CHANNEL_LOCKS             = 8
 	CHANNEL_SCAVENGER         = 8
 	MULTI_CAST_BUFFER_SIZE    = 1 << 19
-	MESSAGE_LIST_SIZE         = 50
 	DELAY_CLEAN_USER_RESOURCE = 3600
 )
 
@@ -45,15 +44,16 @@ type AllChannel struct {
 }
 
 type Channel struct {
-	Name            string
-	Users           map[string]*User
-	UsersLock       []*sync.RWMutex
-	ScavengerChan   []chan *User
-	MultiCastChan   chan *lib.PostMessage
-	Count           int64
-	PostMessagePool *sync.Pool
-	PostReplyPool   *sync.Pool
-	PollMessagePool *sync.Pool
+	Name                string
+	Users               map[string]*User
+	UsersLock           []*sync.RWMutex
+	ScavengerChan       []chan *User
+	MultiCastStage1Chan chan *lib.PostMessage
+	MultiCastStage2Chan chan *lib.PostMessage
+	Count               int64
+	PostMessagePool     *sync.Pool
+	PostReplyPool       *sync.Pool
+	PollMessagePool     *sync.Pool
 	//SingleCastChan chan *PostMessage
 }
 
@@ -142,12 +142,14 @@ func AddChannel(channel_name string) *Channel {
 			lock = new(sync.RWMutex)
 			channel.UsersLock = append(channel.UsersLock, lock)
 		}
-		channel.MultiCastChan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
+		channel.MultiCastStage1Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
+		channel.MultiCastStage2Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.Count = 0
 
-		go ChannelSender(channel_name, channel.MultiCastChan)
+		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
+		go ChannelSenderStage2(channel_name, channel.MultiCastStage1Chan)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
@@ -256,6 +258,12 @@ func GlobalOptionsHandler(w http.ResponseWriter, req *http.Request) {
 
 // 处理实时修改配置的请求
 func SysConfigHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
 	var config_action ConfigAction
 	var config_action_reply ConfigActionReply
 
@@ -349,6 +357,12 @@ end:
 
 // 处理创建Channel的请求
 func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
 	var add_channel_reply AddChannelReply
 
 	vars := mux.Vars(req)
@@ -376,6 +390,12 @@ func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
 
 // 处理POST消息
 func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
 	var channel_name string
 	var channel *Channel
 	var err error
@@ -401,14 +421,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel = GetChannel(channel_name)
 
-	//post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
-	post_message := new(lib.PostMessage)
-
-	// clear content of post_message
-	post_message.MessageType = ""
-	post_message.MessageID = ""
-	post_message.ToUser = ""
-	post_message.PayLoad = ""
+	post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
 
 	err = ffjson.Unmarshal(body, post_message)
 	if err != nil {
@@ -423,7 +436,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	send_finished := false
 	// send message to buffered channel
 	select {
-	case channel.MultiCastChan <- post_message:
+	case channel.MultiCastStage1Chan <- post_message:
 		send_finished = true
 	case _ = <-wheel.After(20 * time.Millisecond):
 		utils.Log.Println("message buffer of channel is full, channel:", channel_name)
@@ -459,6 +472,12 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 // 处理Poll消息
 func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
 	var channel_name string
 	var user_id string
 
@@ -544,25 +563,62 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
-func ChannelSender(channel_name string, multicast_channel chan *lib.PostMessage) {
+func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel chan *lib.PostMessage) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
+	for {
+		if post_message, ok := <-stage1_channel; ok {
+			select {
+			case stage2_channel <- post_message:
+			case _ = <-wheel.After(10 * time.Millisecond):
+				utils.Log.Println("channel stage2 is full, channel: %s!!!\n", channel_name)
+			}
+		} else {
+			utils.Log.Printf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
+		}
+	}
+}
+
+func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessage) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
+	var post_message *lib.PostMessage
+	var ok bool
+
 	for {
 		channel := GetChannel(channel_name)
 
 		// 如果channel中有用户，或正确获取channel
 		// 则保存消息到用户的消息缓存
 		if len(channel.Users) > 0 {
-			post_message := <-multicast_channel
+			if post_message, ok = <-stage2_channel; !ok {
+				utils.Log.Printf("Stage2 channel has closed, channel: %s!!!\n", channel_name)
+			}
 
 			userid := post_message.ToUser
 
 			if userid == "" {
 				for key := range channel.Users {
 					if user, ok := channel.Users[key]; ok {
+						new_post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+						new_post_message.MessageType = post_message.MessageType
+						new_post_message.MessageID = post_message.MessageID
+						new_post_message.ToUser = post_message.ToUser
+						new_post_message.PayLoad = post_message.PayLoad
 						user.SpinLock.Lock()
-						user.MessageBuffer.PushBack(post_message)
+						user.MessageBuffer.PushBack(new_post_message)
 						user.SpinLock.Unlock()
 					}
 				}
+				channel.PostMessagePool.Put(post_message)
 			} else {
 				if user, ok := channel.Users[userid]; ok {
 					user.SpinLock.Lock()
@@ -580,6 +636,12 @@ func ChannelSender(channel_name string, multicast_channel chan *lib.PostMessage)
 
 // 定时清除用户和相关资源
 func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
 	var user *User
 
 	user_list := make(map[string]*User, 1024)
