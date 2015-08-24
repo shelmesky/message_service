@@ -575,7 +575,7 @@ func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel cha
 			select {
 			case stage2_channel <- post_message:
 			case _ = <-wheel.After(10 * time.Millisecond):
-				utils.Log.Println("channel stage2 is full, channel: %s!!!\n", channel_name)
+				utils.Log.Println("Stage2 channel is full, channel: %s!!!\n", channel_name)
 			}
 		} else {
 			utils.Log.Printf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
