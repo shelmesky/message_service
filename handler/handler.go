@@ -578,7 +578,9 @@ func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel cha
 				utils.Log.Println("Stage2 channel is full, channel: %s!!!\n", channel_name)
 			}
 		} else {
-			utils.Log.Printf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
+			err_msg := fmt.Sprintf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
+			utils.Log.Printf(err_msg)
+			panic(err_msg)
 		}
 	}
 }
@@ -600,7 +602,9 @@ func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessa
 		// 则保存消息到用户的消息缓存
 		if len(channel.Users) > 0 {
 			if post_message, ok = <-stage2_channel; !ok {
-				utils.Log.Printf("Stage2 channel has closed, channel: %s!!!\n", channel_name)
+				err_msg := fmt.Sprintf("Stage2 channel has closed, channel: %s!!!\n", channel_name)
+				utils.Log.Printf(err_msg)
+				panic(err_msg)
 			}
 
 			userid := post_message.ToUser
