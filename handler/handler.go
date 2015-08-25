@@ -30,7 +30,8 @@ var (
 	byte_pool = bytepool.New(4096, 8192)
 
 	// timingwheel
-	wheel = utils.NewTimingWheel(1*time.Second, 60)
+	wheel_seconds      = utils.NewTimingWheel(1*time.Second, 10)
+	wheel_milliseconds = utils.NewTimingWheel(10*time.Millisecond, 2)
 
 	ServerDebug bool
 
@@ -438,7 +439,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	select {
 	case channel.MultiCastStage1Chan <- post_message:
 		send_finished = true
-	case _ = <-wheel.After(20 * time.Millisecond):
+	case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
 		utils.Log.Println("message buffer of channel is full, channel:", channel_name)
 		send_finished = false
 	}
@@ -574,8 +575,8 @@ func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel cha
 		if post_message, ok := <-stage1_channel; ok {
 			select {
 			case stage2_channel <- post_message:
-			case _ = <-wheel.After(10 * time.Millisecond):
-				utils.Log.Println("Stage2 channel is full, channel: %s!!!\n", channel_name)
+			case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+				utils.Log.Printf("Stage2 channel is full, channel: %s!!!\n", channel_name)
 			}
 		} else {
 			err_msg := fmt.Sprintf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
@@ -657,7 +658,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User) {
 		case user := <-scavenger_chan:
 			utils.Log.Println("Scavenger receive user:", user.ID)
 			user_list[user.ID] = user
-		case _ = <-wheel.After(2 * time.Second):
+		case _ = <-wheel_seconds.After(2 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
 					now := time.Now().Unix()
