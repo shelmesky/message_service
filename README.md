@@ -1,7 +1,7 @@
 # message_service
 Written by Golang, with high performance and low latency.
 
-### 每秒240MB吞吐量
+### 每秒240MB吞吐量，每秒接收50W条消息
 
 ### 发送消息的RPS：10W/S
 
