@@ -150,7 +150,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.Count = 0
 
 		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
-		go ChannelSenderStage2(channel_name, channel.MultiCastStage1Chan)
+		go ChannelSenderStage2(channel_name, channel.MultiCastStage2Chan)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
