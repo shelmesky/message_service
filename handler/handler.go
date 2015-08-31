@@ -640,7 +640,7 @@ func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessa
 }
 
 // 定时清除用户和相关资源
-func ChannelScavenger(channel *Channel, scavenger_chan chan *User, idx int) {
+func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
@@ -656,7 +656,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, idx int) {
 	for {
 		select {
 		case user := <-scavenger_chan:
-			utils.Log.Printf("Scavenger [%d] got user: %s\n", idx, user.ID)
+			utils.Log.Printf("Scavenger [%d] got user: %s\n", scavenger_idx, user.ID)
 			user_list[user.ID] = user
 		case _ = <-wheel_seconds.After(2 * time.Second):
 			if len(user_list) > 0 {
@@ -669,7 +669,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, idx int) {
 						delete(channel.Users, user.ID)
 						delete(user_list, user.ID)
 						user.SpinLock.Unlock()
-						utils.Log.Printf("Scavenger [%d] clean user: %s\n", idx, user.ID)
+						utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
 					}
 				}
 			}
