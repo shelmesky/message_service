@@ -226,6 +226,8 @@ func (mj *OnlineUsers) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	_ = err
 	buf.WriteString(`{"result":`)
 	fflib.FormatBits2(buf, uint64(mj.Result), 10, mj.Result < 0)
+	buf.WriteString(`,"length":`)
+	fflib.FormatBits2(buf, uint64(mj.Length), 10, mj.Length < 0)
 	buf.WriteString(`,"users":`)
 	if mj.UserList != nil {
 		buf.WriteString(`[`)
@@ -249,10 +251,14 @@ const (
 
 	ffj_t_OnlineUsers_Result
 
+	ffj_t_OnlineUsers_Length
+
 	ffj_t_OnlineUsers_UserList
 )
 
 var ffj_key_OnlineUsers_Result = []byte("result")
+
+var ffj_key_OnlineUsers_Length = []byte("length")
 
 var ffj_key_OnlineUsers_UserList = []byte("users")
 
@@ -315,6 +321,14 @@ mainparse:
 			} else {
 				switch kn[0] {
 
+				case 'l':
+
+					if bytes.Equal(ffj_key_OnlineUsers_Length, kn) {
+						currentKey = ffj_t_OnlineUsers_Length
+						state = fflib.FFParse_want_colon
+						goto mainparse
+					}
+
 				case 'r':
 
 					if bytes.Equal(ffj_key_OnlineUsers_Result, kn) {
@@ -335,6 +349,12 @@ mainparse:
 
 				if fflib.EqualFoldRight(ffj_key_OnlineUsers_UserList, kn) {
 					currentKey = ffj_t_OnlineUsers_UserList
+					state = fflib.FFParse_want_colon
+					goto mainparse
+				}
+
+				if fflib.SimpleLetterEqualFold(ffj_key_OnlineUsers_Length, kn) {
+					currentKey = ffj_t_OnlineUsers_Length
 					state = fflib.FFParse_want_colon
 					goto mainparse
 				}
@@ -364,6 +384,9 @@ mainparse:
 
 				case ffj_t_OnlineUsers_Result:
 					goto handle_Result
+
+				case ffj_t_OnlineUsers_Length:
+					goto handle_Length
 
 				case ffj_t_OnlineUsers_UserList:
 					goto handle_UserList
@@ -405,6 +428,36 @@ handle_Result:
 			}
 
 			uj.Result = int(tval)
+
+		}
+	}
+
+	state = fflib.FFParse_after_value
+	goto mainparse
+
+handle_Length:
+
+	/* handler: uj.Length type=int kind=int quoted=false*/
+
+	{
+		if tok != fflib.FFTok_integer && tok != fflib.FFTok_null {
+			return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for int", tok))
+		}
+	}
+
+	{
+
+		if tok == fflib.FFTok_null {
+
+		} else {
+
+			tval, err := fflib.ParseInt(fs.Output.Bytes(), 10, 64)
+
+			if err != nil {
+				return fs.WrapErr(err)
+			}
+
+			uj.Length = int(tval)
 
 		}
 	}

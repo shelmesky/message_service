@@ -24,5 +24,6 @@ type DeleteMessageReply struct {
 
 type OnlineUsers struct {
 	Result   int      `json:"result"`
+	Length   int      `json:"length"`
 	UserList []string `json:"users"`
 }

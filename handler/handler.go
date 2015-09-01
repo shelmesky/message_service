@@ -12,6 +12,8 @@ import (
 	"github.com/shelmesky/message_service/utils"
 	"io/ioutil"
 	"net/http"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,7 +22,8 @@ const (
 	CHANNEL_LOCKS             = 8
 	CHANNEL_SCAVENGER         = 8
 	MULTI_CAST_BUFFER_SIZE    = 1 << 19
-	DELAY_CLEAN_USER_RESOURCE = 3600
+	DELAY_CLEAN_USER_RESOURCE = 1800
+	DELAY_USER_ONLINE         = 60
 )
 
 var (
@@ -55,6 +58,7 @@ type Channel struct {
 	PostMessagePool     *sync.Pool
 	PostReplyPool       *sync.Pool
 	PollMessagePool     *sync.Pool
+	RLock               *sync.RWMutex
 	//SingleCastChan chan *PostMessage
 }
 
@@ -148,6 +152,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.Count = 0
+		channel.RLock = new(sync.RWMutex)
 
 		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
 		go ChannelSenderStage2(channel_name, channel.MultiCastStage2Chan)
@@ -262,6 +267,7 @@ func SysConfigHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -361,6 +367,7 @@ func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -394,6 +401,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -471,10 +479,78 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
+func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	var online_users lib.OnlineUsers
+	var channel_name string
+	var user *User
+	var key string
+	var now int64
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+
+	channel_name = req.Header.Get("channel")
+	channel_name = strings.Trim(channel_name, " ")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
+		return
+	}
+
+	channel := GetChannel(channel_name)
+
+	channel.RLock.RLock()
+
+	channel_user_length := len(channel.Users)
+	if channel_user_length > 0 {
+
+		for key = range channel.Users {
+			now = time.Now().Unix()
+			user = channel.Users[key]
+			if now-user.LastUpdate < DELAY_USER_ONLINE {
+				online_users.UserList = append(online_users.UserList, key)
+			}
+		}
+
+		if len(online_users.UserList) == 0 {
+			online_users.UserList = []string{}
+		}
+
+	} else {
+		online_users.UserList = []string{}
+	}
+
+	channel.RLock.RUnlock()
+
+	online_users.Result = 0
+	online_users.Length = len(online_users.UserList)
+
+	buf, err := ffjson.Marshal(online_users)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
+}
+
 func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -541,6 +617,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -633,6 +710,7 @@ func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel cha
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -655,6 +733,7 @@ func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessa
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -709,6 +788,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
+			debug.PrintStack()
 		}
 	}()
 
@@ -723,11 +803,13 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 		case user := <-scavenger_chan:
 			utils.Log.Printf("Scavenger [%d] got user: %s\n", scavenger_idx, user.ID)
 			user_list[user.ID] = user
-		case _ = <-wheel_seconds.After(2 * time.Second):
+		case _ = <-wheel_seconds.After(1 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
 					now := time.Now().Unix()
 					user = user_list[idx]
+
+					// 清除用户的资源，释放内存
 					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
 						user.SpinLock.Lock()
 						user.MessageBuffer.Init()
@@ -735,6 +817,11 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 						delete(user_list, user.ID)
 						user.SpinLock.Unlock()
 						utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
+					}
+
+					// TODO: 收集channel的在线用户
+					if now-user.LastUpdate > DELAY_USER_ONLINE {
+
 					}
 				}
 			}
