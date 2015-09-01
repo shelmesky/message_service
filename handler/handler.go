@@ -58,7 +58,7 @@ type Channel struct {
 	PostMessagePool     *sync.Pool
 	PostReplyPool       *sync.Pool
 	PollMessagePool     *sync.Pool
-	RLock               *sync.RWMutex
+	ChannelRLock        *sync.RWMutex
 	//SingleCastChan chan *PostMessage
 }
 
@@ -152,7 +152,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.Count = 0
-		channel.RLock = new(sync.RWMutex)
+		channel.ChannelRLock = new(sync.RWMutex)
 
 		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
 		go ChannelSenderStage2(channel_name, channel.MultiCastStage2Chan)
@@ -507,7 +507,7 @@ func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel := GetChannel(channel_name)
 
-	channel.RLock.RLock()
+	channel.ChannelRLock.RLock()
 
 	channel_user_length := len(channel.Users)
 	if channel_user_length > 0 {
@@ -528,7 +528,7 @@ func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 		online_users.UserList = []string{}
 	}
 
-	channel.RLock.RUnlock()
+	channel.ChannelRLock.RUnlock()
 
 	online_users.Result = 0
 	online_users.Length = len(online_users.UserList)
@@ -793,6 +793,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 	}()
 
 	var user *User
+	var now int64
 
 	user_list := make(map[string]*User, 1024)
 
@@ -800,13 +801,13 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 
 	for {
 		select {
-		case user := <-scavenger_chan:
+		case user = <-scavenger_chan:
 			utils.Log.Printf("Scavenger [%d] got user: %s\n", scavenger_idx, user.ID)
 			user_list[user.ID] = user
 		case _ = <-wheel_seconds.After(1 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
-					now := time.Now().Unix()
+					now = time.Now().Unix()
 					user = user_list[idx]
 
 					// 清除用户的资源，释放内存
