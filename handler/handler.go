@@ -471,6 +471,71 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
+func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+		}
+	}()
+
+	var channel_name string
+	var user_id string
+	var delete_message_reply lib.DeleteMessageReply
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+
+	channel_name = req.Header.Get("channel")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
+		return
+	}
+
+	user_id = req.Header.Get("tourid")
+	if user_id == "" {
+		utils.Log.Printf("[%s] user_id not in header\n", req.RemoteAddr)
+		http.Error(w, "user_id name not in header", 400)
+		return
+	}
+
+	channel := GetChannel(channel_name)
+
+	user, err := channel.GetUser(user_id)
+	if err != nil {
+		user, err = channel.AddUser(user_id)
+		if err != nil {
+			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
+		}
+	}
+
+	user.SpinLock.Lock()
+	if user.MessageBuffer != nil {
+		user.MessageBuffer = user.MessageBuffer.Init()
+	}
+	user.SpinLock.Unlock()
+
+	delete_message_reply.Result = 0
+
+	buf, err := ffjson.Marshal(delete_message_reply)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	message_buffer_len := user.MessageBuffer.Len()
+	if ServerDebug == true {
+		utils.Log.Printf("Delete message for [%s], channel: [%s], user_id: [%s], length: [%d]\n", req.RemoteAddr, channel_name, user_id, message_buffer_len)
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
+}
+
 // 处理Poll消息
 func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {

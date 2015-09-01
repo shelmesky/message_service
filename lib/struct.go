@@ -17,3 +17,12 @@ type PostReply struct {
 	Result    int    `json:"result"`
 	MessageID string `json:"id"`
 }
+
+type DeleteMessageReply struct {
+	Result int `json:"result"`
+}
+
+type OnlineUsers struct {
+	Result   int      `json:"result"`
+	UserList []string `json:"users"`
+}
