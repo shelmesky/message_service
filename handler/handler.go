@@ -48,17 +48,20 @@ type AllChannel struct {
 }
 
 type Channel struct {
-	Name                string
-	Users               map[string]*User
-	UsersLock           []*sync.RWMutex
+	Name      string
+	Users     map[string]*User
+	UsersLock []*sync.RWMutex
+	Count     int64
+
 	ScavengerChan       []chan *User
 	MultiCastStage1Chan chan *lib.PostMessage
 	MultiCastStage2Chan chan *lib.PostMessage
-	Count               int64
-	PostMessagePool     *sync.Pool
-	PostReplyPool       *sync.Pool
-	PollMessagePool     *sync.Pool
-	ChannelRLock        *sync.RWMutex
+
+	PostMessagePool *sync.Pool
+	PostReplyPool   *sync.Pool
+	PollMessagePool *sync.Pool
+
+	ChannelRLock *sync.RWMutex
 	//SingleCastChan chan *PostMessage
 }
 
