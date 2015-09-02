@@ -24,6 +24,7 @@ const (
 	MULTI_CAST_BUFFER_SIZE    = 1 << 19
 	DELAY_CLEAN_USER_RESOURCE = 1800
 	DELAY_USER_ONLINE         = 60
+	USE_FASE_ONLINE_MAP       = true
 )
 
 var (
@@ -47,19 +48,28 @@ type AllChannel struct {
 	Channels map[string]*Channel
 }
 
+type UserState struct {
+	ID    string
+	State bool
+}
+
 type Channel struct {
-	Name      string
-	Users     map[string]*User
-	UsersLock []*sync.RWMutex
-	Count     int64
+	Name            string
+	Users           map[string]*User
+	UsersLock       []*sync.RWMutex
+	OnlineUsers     map[string]bool
+	OnlineUsersLock *sync.RWMutex
+	Count           int64
 
 	ScavengerChan       []chan *User
 	MultiCastStage1Chan chan *lib.PostMessage
 	MultiCastStage2Chan chan *lib.PostMessage
+	UserStateChan       chan *UserState
 
 	PostMessagePool *sync.Pool
 	PostReplyPool   *sync.Pool
 	PollMessagePool *sync.Pool
+	UserStatePool   *sync.Pool
 
 	ChannelRLock *sync.RWMutex
 	//SingleCastChan chan *PostMessage
@@ -71,6 +81,7 @@ type User struct {
 	LastUpdate    int64
 	SpinLock      *isync.SpinLock
 	MessageBuffer *list.List
+	Online        bool
 }
 
 type AddChannelReply struct {
@@ -150,22 +161,28 @@ func AddChannel(channel_name string) *Channel {
 			lock = new(sync.RWMutex)
 			channel.UsersLock = append(channel.UsersLock, lock)
 		}
+		channel.UserStateChan = make(chan *UserState, 1024)
 		channel.MultiCastStage1Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 		channel.MultiCastStage2Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
+
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.Count = 0
 		channel.ChannelRLock = new(sync.RWMutex)
 
+		channel.OnlineUsers = make(map[string]bool, 1024)
+		channel.OnlineUsersLock = new(sync.RWMutex)
+
 		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
 		go ChannelSenderStage2(channel_name, channel.MultiCastStage2Chan)
+		go UserStateCollector(channel)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
 		for j := 0; j < CHANNEL_SCAVENGER; j++ {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
-			go ChannelScavenger(channel, scavenger_chan, j)
+			go ChannelScavenger(channel, scavenger_chan, j, channel.UserStateChan)
 		}
 
 		channel.PostMessagePool = &sync.Pool{
@@ -183,6 +200,12 @@ func AddChannel(channel_name string) *Channel {
 		channel.PollMessagePool = &sync.Pool{
 			New: func() interface{} {
 				return new(lib.PollMessage)
+			},
+		}
+
+		channel.UserStatePool = &sync.Pool{
+			New: func() interface{} {
+				return new(UserState)
 			},
 		}
 
@@ -244,7 +267,8 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	users_lock, _ := this.getLock(user_id)
 	users_lock.Lock()
 
-	if _, ok := this.Users[user_id]; ok {
+	if user, ok := this.Users[user_id]; ok {
+		user.MessageBuffer.Init()
 		delete(this.Users, user_id)
 		users_lock.Unlock()
 		return true, nil
@@ -510,31 +534,44 @@ func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel := GetChannel(channel_name)
 
-	channel.ChannelRLock.RLock()
+	if USE_FASE_ONLINE_MAP == false {
+		channel.ChannelRLock.RLock()
 
-	channel_user_length := len(channel.Users)
-	if channel_user_length > 0 {
+		channel_user_length := len(channel.Users)
+		if channel_user_length > 0 {
 
-		for key = range channel.Users {
-			now = time.Now().Unix()
-			user = channel.Users[key]
-			if now-user.LastUpdate < DELAY_USER_ONLINE {
-				online_users.UserList = append(online_users.UserList, key)
+			for key = range channel.Users {
+				now = time.Now().Unix()
+				user = channel.Users[key]
+				if now-user.LastUpdate < DELAY_USER_ONLINE {
+					online_users.UserList = append(online_users.UserList, key)
+				}
 			}
-		}
 
-		if len(online_users.UserList) == 0 {
+			if len(online_users.UserList) == 0 {
+				online_users.UserList = []string{}
+			}
+
+		} else {
 			online_users.UserList = []string{}
 		}
 
-	} else {
-		online_users.UserList = []string{}
-	}
+		channel.ChannelRLock.RUnlock()
 
-	channel.ChannelRLock.RUnlock()
+	} else {
+		channel.OnlineUsersLock.RLock()
+		for key = range channel.OnlineUsers {
+			online_users.UserList = append(online_users.UserList, key)
+		}
+		channel.OnlineUsersLock.RUnlock()
+	}
 
 	online_users.Result = 0
 	online_users.Length = len(online_users.UserList)
+
+	if online_users.Length == 0 {
+		online_users.UserList = []string{}
+	}
 
 	buf, err := ffjson.Marshal(online_users)
 	if err != nil {
@@ -786,8 +823,38 @@ func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessa
 	}
 }
 
+// 维护channel的在线用户列表
+func UserStateCollector(channel *Channel) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	var user_state *UserState
+
+	for {
+		user_state = <-channel.UserStateChan
+		if ServerDebug == true {
+			utils.Log.Println("User change state:", user_state)
+		}
+		channel.OnlineUsersLock.Lock()
+		if user_state.State == true {
+			channel.OnlineUsers[user_state.ID] = true
+		} else {
+			if _, ok := channel.OnlineUsers[user_state.ID]; ok {
+				delete(channel.OnlineUsers, user_state.ID)
+			}
+		}
+		channel.OnlineUsersLock.Unlock()
+
+		channel.UserStatePool.Put(user_state)
+	}
+}
+
 // 定时清除用户和相关资源
-func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int) {
+func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int, user_state_chan chan *UserState) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
@@ -797,35 +864,52 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 
 	var user *User
 	var now int64
+	var state *UserState
 
 	user_list := make(map[string]*User, 1024)
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	for {
 		select {
 		case user = <-scavenger_chan:
 			utils.Log.Printf("Scavenger [%d] got user: %s\n", scavenger_idx, user.ID)
 			user_list[user.ID] = user
-		case _ = <-wheel_seconds.After(1 * time.Second):
+
+			user.SpinLock.Lock()
+			user.Online = true
+			user.SpinLock.Unlock()
+
+			state = channel.UserStatePool.Get().(*UserState)
+			state.ID = user.ID
+			state.State = true
+			user_state_chan <- state
+
+		case _ = <-wheel_seconds.After(5 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
 					now = time.Now().Unix()
 					user = user_list[idx]
 
-					// 清除用户的资源，释放内存
+					// clean user's resource and free memory
 					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
-						user.SpinLock.Lock()
-						user.MessageBuffer.Init()
-						delete(channel.Users, user.ID)
+						channel.DeleteUser(user.ID)
 						delete(user_list, user.ID)
-						user.SpinLock.Unlock()
 						utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
 					}
 
-					// TODO: 收集channel的在线用户
+					// generate online user list
 					if now-user.LastUpdate > DELAY_USER_ONLINE {
+						user.SpinLock.Lock()
+						if user.Online == true {
+							user.Online = false
 
+							state = channel.UserStatePool.Get().(*UserState)
+							state.ID = user.ID
+							state.State = false
+							user_state_chan <- state
+						}
+						user.SpinLock.Unlock()
 					}
 				}
 			}
