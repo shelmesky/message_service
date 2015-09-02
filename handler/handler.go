@@ -15,6 +15,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -59,7 +60,8 @@ type Channel struct {
 	UsersLock       []*sync.RWMutex
 	OnlineUsers     map[string]bool
 	OnlineUsersLock *sync.RWMutex
-	Count           int64
+	UserCount       uint64
+	RealUserCount   uint64
 
 	ScavengerChan       []chan *User
 	MultiCastStage1Chan chan *lib.PostMessage
@@ -167,7 +169,7 @@ func AddChannel(channel_name string) *Channel {
 
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
-		channel.Count = 0
+		channel.UserCount = 0
 		channel.ChannelRLock = new(sync.RWMutex)
 
 		channel.OnlineUsers = make(map[string]bool, 1024)
@@ -842,9 +844,11 @@ func UserStateCollector(channel *Channel) {
 		channel.OnlineUsersLock.Lock()
 		if user_state.State == true {
 			channel.OnlineUsers[user_state.ID] = true
+			atomic.AddUint64(&channel.RealUserCount, 1)
 		} else {
 			if _, ok := channel.OnlineUsers[user_state.ID]; ok {
 				delete(channel.OnlineUsers, user_state.ID)
+				atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
 			}
 		}
 		channel.OnlineUsersLock.Unlock()
@@ -885,6 +889,8 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 			state.State = true
 			user_state_chan <- state
 
+			atomic.AddUint64(&channel.UserCount, 1)
+
 		case _ = <-wheel_seconds.After(5 * time.Second):
 			if len(user_list) > 0 {
 				for idx := range user_list {
@@ -895,6 +901,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
 						channel.DeleteUser(user.ID)
 						delete(user_list, user.ID)
+						atomic.AddUint64(&channel.UserCount, ^uint64(0))
 						utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
 					}
 
