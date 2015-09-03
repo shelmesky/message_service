@@ -250,7 +250,9 @@ func main() {
 	router.HandleFunc("/api/users", handler.OnlineUsersHandler).Methods("GET")
 
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
+
 	router.HandleFunc("/api/sys/config", handler.SysConfigHandler).Methods("POST")
+	router.HandleFunc("/api/sys/status", handler.SysStatusHandler).Methods("GET")
 
 	s.SetKeepAlivesEnabled(Config.KeepAlive)
 

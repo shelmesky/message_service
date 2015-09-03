@@ -24,7 +24,7 @@ const (
 	CHANNEL_SCAVENGER         = 8
 	MULTI_CAST_BUFFER_SIZE    = 1 << 19
 	DELAY_CLEAN_USER_RESOURCE = 1800
-	DELAY_USER_ONLINE         = 60
+	DELAY_USER_ONLINE         = 30
 	USE_FASE_ONLINE_MAP       = true
 )
 
@@ -389,6 +389,48 @@ end:
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(buf)
+}
+
+func SysStatusHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	var key string
+	var channel *Channel
+	var channel_status lib.ChannelStatus
+	var channel_status_reply lib.ChannelStatusReply
+
+	all_channel.RLock.RLock()
+	defer all_channel.RLock.RUnlock()
+
+	for key = range all_channel.Channels {
+		channel = all_channel.Channels[key]
+		channel_status.Name = channel.Name
+		channel_status.UserCount = atomic.LoadUint64(&channel.UserCount)
+		channel_status.RealUserCount = atomic.LoadUint64(&channel.RealUserCount)
+		channel_status_reply.Data = append(channel_status_reply.Data, channel_status)
+	}
+
+	if len(channel_status_reply.Data) == 0 {
+		channel_status_reply.Result = 0
+		channel_status_reply.Data = []lib.ChannelStatus{}
+	}
+
+	buf, err := ffjson.Marshal(channel_status_reply)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s]\n", req.RemoteAddr, err)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
 }
 
 // 处理创建Channel的请求
@@ -914,6 +956,19 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 							state = channel.UserStatePool.Get().(*UserState)
 							state.ID = user.ID
 							state.State = false
+							user_state_chan <- state
+						}
+						user.SpinLock.Unlock()
+					}
+
+					if now-user.LastUpdate <= DELAY_USER_ONLINE {
+						user.SpinLock.Lock()
+						if user.Online == false {
+							user.Online = true
+
+							state = channel.UserStatePool.Get().(*UserState)
+							state.ID = user.ID
+							state.State = true
 							user_state_chan <- state
 						}
 						user.SpinLock.Unlock()
