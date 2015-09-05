@@ -850,17 +850,21 @@ func ChannelSenderStage1(channel_name string, stage1_channel chan *lib.PostMessa
 	var ok bool
 	var post_message *lib.PostMessage
 
+	channel := GetChannel(channel_name)
+
 	for {
 		if post_message, ok = <-stage1_channel; ok {
 			if post_message.ToUser == "" {
 				// channel内广播消息
 				for idx = range stage2_channel_list {
+					new_post_message := CopyMessage(channel, post_message)
 					select {
-					case stage2_channel_list[idx] <- post_message:
+					case stage2_channel_list[idx] <- new_post_message:
 					case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
 						utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
 					}
 				}
+				channel.PostMessagePool.Put(post_message)
 			} else {
 				// 发送给channel的指定用户
 				user_id_hash := utils.GenKey(post_message.ToUser)
@@ -897,8 +901,9 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 	// 否则保存到当前Sender的消息缓存
 	// 等到接收到第一个用户时，发送给用户
 
+	channel := GetChannel(channel_name)
+
 	for {
-		channel := GetChannel(channel_name)
 		select {
 		case user = <-user_channel:
 			user_list[user.ID] = user
@@ -909,7 +914,10 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 				for key := range user_list {
 					if user, ok = user_list[key]; ok {
 						for idx := range post_message_temp_buffer {
-							SendMessageToUser(channel, user, post_message_temp_buffer[idx])
+							new_post_message := CopyMessage(channel, post_message_temp_buffer[idx])
+							user.SpinLock.Lock()
+							user.MessageBuffer.PushBack(new_post_message)
+							user.SpinLock.Unlock()
 						}
 					}
 				}
@@ -928,7 +936,10 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 				if userid == "" {
 					for key := range user_list {
 						if user, ok = user_list[key]; ok {
-							SendMessageToUser(channel, user, post_message)
+							new_post_message := CopyMessage(channel, post_message)
+							user.SpinLock.Lock()
+							user.MessageBuffer.PushBack(new_post_message)
+							user.SpinLock.Unlock()
 						}
 					}
 					channel.PostMessagePool.Put(post_message)
@@ -940,21 +951,21 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 					}
 				}
 			} else {
-				post_message_temp_buffer = append(post_message_temp_buffer, post_message)
+				new_post_message := CopyMessage(channel, post_message)
+				post_message_temp_buffer = append(post_message_temp_buffer, new_post_message)
+				channel.PostMessagePool.Put(post_message)
 			}
 		}
 	}
 }
 
-func SendMessageToUser(channel *Channel, user *User, post_message *lib.PostMessage) {
+func CopyMessage(channel *Channel, post_message *lib.PostMessage) *lib.PostMessage {
 	new_post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
 	new_post_message.MessageType = post_message.MessageType
 	new_post_message.MessageID = post_message.MessageID
 	new_post_message.ToUser = post_message.ToUser
 	new_post_message.PayLoad = post_message.PayLoad
-	user.SpinLock.Lock()
-	user.MessageBuffer.PushBack(new_post_message)
-	user.SpinLock.Unlock()
+	return new_post_message
 }
 
 // 维护channel的在线用户列表
