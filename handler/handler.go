@@ -826,13 +826,9 @@ func ChannelSenderStage0(channel_name string, stage0_channel, stage1_channel cha
 
 	for {
 		if post_message, ok = <-stage0_channel; ok {
-			select {
-			case stage1_channel <- post_message:
-				if ServerDebug {
-					utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
-				}
-			case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-				utils.Log.Printf("ChannelSenderStage0: Stage1 channel is full, channel: %s!!!\n", channel_name)
+			stage1_channel <- post_message
+			if ServerDebug {
+				utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
 			}
 		} else {
 			err_msg := fmt.Sprintf("ChannelSenderStage0: Stage0 channel has closed, channel: %s!!!\n", channel_name)
