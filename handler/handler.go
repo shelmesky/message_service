@@ -84,6 +84,7 @@ type User struct {
 	SpinLock      *isync.SpinLock
 	MessageBuffer *list.List
 	Online        bool
+	SenderKey     uint32
 }
 
 type AddChannelReply struct {
@@ -254,6 +255,8 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 	} else {
 		user = NewUser(user_id)
 		this.Users[user_id] = user
+		// 保存用户的SenderKey
+		user.SenderKey = hash_key
 		// 发送用户到清道夫
 		this.ScavengerChan[hash_key] <- user
 		users_lock.Unlock()
