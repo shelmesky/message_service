@@ -20,12 +20,16 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS             = 8
-	CHANNEL_SCAVENGER         = 8
-	MULTI_CAST_BUFFER_SIZE    = 1 << 19
+	CHANNEL_LOCKS             = 4
+	CHANNEL_SCAVENGER         = 4
+	MULTI_CAST_BUFFER_SIZE    = 1 << 16
 	DELAY_CLEAN_USER_RESOURCE = 1800
 	DELAY_USER_ONLINE         = 30
 	USE_FASE_ONLINE_MAP       = true
+
+	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
+	//CHANNEL_LOCKS				= 8
+	//CHANNEL_SCAVENGER			= 8
 )
 
 var (
