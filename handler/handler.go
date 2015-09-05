@@ -64,8 +64,10 @@ type Channel struct {
 	RealUserCount   uint64
 
 	ScavengerChan       []chan *User
+	UserChan            []chan *User
+	MultiCastStage0Chan chan *lib.PostMessage
 	MultiCastStage1Chan chan *lib.PostMessage
-	MultiCastStage2Chan chan *lib.PostMessage
+	MultiCastStage2Chan []chan *lib.PostMessage
 	UserStateChan       chan *UserState
 
 	PostMessagePool *sync.Pool
@@ -164,30 +166,47 @@ func AddChannel(channel_name string) *Channel {
 			lock = new(sync.RWMutex)
 			channel.UsersLock = append(channel.UsersLock, lock)
 		}
+
+		// 传递用户状态的channel
 		channel.UserStateChan = make(chan *UserState, 1024)
+
+		// 多级channel
+		channel.MultiCastStage0Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 		channel.MultiCastStage1Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
-		channel.MultiCastStage2Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 
 		channel.Users = make(map[string]*User, 0)
 		channel.Name = channel_name
 		channel.UserCount = 0
 		channel.ChannelRLock = new(sync.RWMutex)
 
+		// 保存channel的在线用户
 		channel.OnlineUsers = make(map[string]bool, 1024)
 		channel.OnlineUsersLock = new(sync.RWMutex)
 
+		// 创建Stage0/1/2的Sender
+		for j := 0; j < CHANNEL_LOCKS; j++ {
+			user_chan := make(chan *User, 1024)
+			channel.UserChan = append(channel.UserChan, user_chan)
+			stage_channel := make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
+			channel.MultiCastStage2Chan = append(channel.MultiCastStage2Chan, stage_channel)
+			go ChannelSenderStage2(channel_name, user_chan, stage_channel, j)
+		}
+
+		go ChannelSenderStage0(channel_name, channel.MultiCastStage0Chan, channel.MultiCastStage1Chan)
 		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
-		go ChannelSenderStage2(channel_name, channel.MultiCastStage2Chan)
+
+		// 维护在线用户列表
 		go UserStateCollector(channel)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
-		for j := 0; j < CHANNEL_SCAVENGER; j++ {
+		for k := 0; k < CHANNEL_SCAVENGER; k++ {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
-			go ChannelScavenger(channel, scavenger_chan, j, channel.UserStateChan)
+			go ChannelScavenger(channel, scavenger_chan, k, channel.UserStateChan)
 		}
 
+		// 对象池
 		channel.PostMessagePool = &sync.Pool{
 			New: func() interface{} {
 				return new(lib.PostMessage)
@@ -257,8 +276,9 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 		this.Users[user_id] = user
 		// 保存用户的SenderKey
 		user.SenderKey = hash_key
-		// 发送用户到清道夫
+		// 发送用户到清道夫和Stage2 Sender
 		this.ScavengerChan[hash_key] <- user
+		this.UserChan[hash_key] <- user
 		users_lock.Unlock()
 		return user, nil
 	}
@@ -519,10 +539,10 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	send_finished := false
 	// send message to buffered channel
 	select {
-	case channel.MultiCastStage1Chan <- post_message:
+	case channel.MultiCastStage0Chan <- post_message:
 		send_finished = true
 	case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-		utils.Log.Println("message buffer of channel is full, channel:", channel_name)
+		utils.Log.Println("message buffer of stage0 channel is full, channel:", channel_name)
 		send_finished = false
 	}
 
@@ -793,7 +813,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
-func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel chan *lib.PostMessage) {
+func ChannelSenderStage0(channel_name string, stage0_channel, stage1_channel chan *lib.PostMessage) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
@@ -801,22 +821,68 @@ func ChannelSenderStage1(channel_name string, stage1_channel, stage2_channel cha
 		}
 	}()
 
+	var ok bool
+	var post_message *lib.PostMessage
+
 	for {
-		if post_message, ok := <-stage1_channel; ok {
+		if post_message, ok = <-stage0_channel; ok {
 			select {
-			case stage2_channel <- post_message:
+			case stage1_channel <- post_message:
+				if ServerDebug {
+					utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
+				}
 			case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-				utils.Log.Printf("Stage2 channel is full, channel: %s!!!\n", channel_name)
+				utils.Log.Printf("ChannelSenderStage0: Stage1 channel is full, channel: %s!!!\n", channel_name)
 			}
 		} else {
-			err_msg := fmt.Sprintf("Stage1 channel has closed, channel: %s!!!\n", channel_name)
+			err_msg := fmt.Sprintf("ChannelSenderStage0: Stage0 channel has closed, channel: %s!!!\n", channel_name)
 			utils.Log.Printf(err_msg)
 			panic(err_msg)
 		}
 	}
 }
 
-func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessage) {
+func ChannelSenderStage1(channel_name string, stage1_channel chan *lib.PostMessage, stage2_channel_list []chan *lib.PostMessage) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	var idx int
+	var ok bool
+	var post_message *lib.PostMessage
+
+	for {
+		if post_message, ok = <-stage1_channel; ok {
+			if post_message.ToUser == "" {
+				// channel内广播消息
+				for idx = range stage2_channel_list {
+					select {
+					case stage2_channel_list[idx] <- post_message:
+					case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+						utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
+					}
+				}
+			} else {
+				// 发送给channel的指定用户
+				user_id_hash := utils.GenKey(post_message.ToUser)
+				hash_key := user_id_hash % CHANNEL_LOCKS
+				select {
+				case stage2_channel_list[hash_key] <- post_message:
+				case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+					utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
+				}
+			}
+			if ServerDebug {
+				utils.Log.Println("ChannelSenderStage1: send post_message to stage2_channel", post_message)
+			}
+		}
+	}
+}
+
+func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_channel chan *lib.PostMessage, idx int) {
 	defer func() {
 		if err := recover(); err != nil {
 			utils.Log.Println(err)
@@ -825,49 +891,74 @@ func ChannelSenderStage2(channel_name string, stage2_channel chan *lib.PostMessa
 	}()
 
 	var post_message *lib.PostMessage
+	var user *User
 	var ok bool
+
+	user_list := make(map[string]*User, 1024)
+	post_message_temp_buffer := make([]*lib.PostMessage, 0)
+
+	// 如果当前Sender存在用户则保存到用户消息缓存
+	// 否则保存到当前Sender的消息缓存
+	// 等到接收到第一个用户时，发送给用户
 
 	for {
 		channel := GetChannel(channel_name)
+		select {
+		case user = <-user_channel:
+			user_list[user.ID] = user
+			utils.Log.Printf("ChannelSenderStage2 [%d] got user: %s\n", idx, user.ID)
 
-		// 如果channel中有用户，或正确获取channel
-		// 则保存消息到用户的消息缓存
-		if len(channel.Users) > 0 {
-			if post_message, ok = <-stage2_channel; !ok {
-				err_msg := fmt.Sprintf("Stage2 channel has closed, channel: %s!!!\n", channel_name)
-				utils.Log.Printf(err_msg)
-				panic(err_msg)
+			// 发送本地缓存中的消息给用户
+			if len(post_message_temp_buffer) > 0 {
+				for key := range user_list {
+					if user, ok = user_list[key]; ok {
+						for idx := range post_message_temp_buffer {
+							SendMessageToUser(channel, user, post_message_temp_buffer[idx])
+						}
+					}
+				}
+				for idx := range post_message_temp_buffer {
+					channel.PostMessagePool.Put(post_message_temp_buffer[idx])
+				}
+				post_message_temp_buffer = nil
+				post_message_temp_buffer = make([]*lib.PostMessage, 0)
 			}
 
-			userid := post_message.ToUser
+		case post_message = <-stage2_channel:
+			if len(user_list) > 0 {
 
-			if userid == "" {
-				for key := range channel.Users {
-					if user, ok := channel.Users[key]; ok {
-						new_post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
-						new_post_message.MessageType = post_message.MessageType
-						new_post_message.MessageID = post_message.MessageID
-						new_post_message.ToUser = post_message.ToUser
-						new_post_message.PayLoad = post_message.PayLoad
+				userid := post_message.ToUser
+
+				if userid == "" {
+					for key := range user_list {
+						if user, ok = user_list[key]; ok {
+							SendMessageToUser(channel, user, post_message)
+						}
+					}
+					channel.PostMessagePool.Put(post_message)
+				} else {
+					if user, ok := channel.Users[userid]; ok {
 						user.SpinLock.Lock()
-						user.MessageBuffer.PushBack(new_post_message)
+						user.MessageBuffer.PushBack(post_message)
 						user.SpinLock.Unlock()
 					}
 				}
-				channel.PostMessagePool.Put(post_message)
 			} else {
-				if user, ok := channel.Users[userid]; ok {
-					user.SpinLock.Lock()
-					user.MessageBuffer.PushBack(post_message)
-					user.SpinLock.Unlock()
-				}
+				post_message_temp_buffer = append(post_message_temp_buffer, post_message)
 			}
-		} else {
-			// channel中不存在用户，或获取channel失败
-			// 暂停500毫秒
-			time.Sleep(500 * time.Millisecond)
 		}
 	}
+}
+
+func SendMessageToUser(channel *Channel, user *User, post_message *lib.PostMessage) {
+	new_post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+	new_post_message.MessageType = post_message.MessageType
+	new_post_message.MessageID = post_message.MessageID
+	new_post_message.ToUser = post_message.ToUser
+	new_post_message.PayLoad = post_message.PayLoad
+	user.SpinLock.Lock()
+	user.MessageBuffer.PushBack(new_post_message)
+	user.SpinLock.Unlock()
 }
 
 // 维护channel的在线用户列表
