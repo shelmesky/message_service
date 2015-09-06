@@ -1021,8 +1021,6 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 
 	user_list := make(map[string]*User, 1024)
 
-	time.Sleep(3 * time.Second)
-
 	for {
 		select {
 		case user = <-scavenger_chan:
