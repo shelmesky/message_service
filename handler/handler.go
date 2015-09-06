@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS             = 4
-	CHANNEL_SCAVENGER         = 4
-	MULTI_CAST_BUFFER_SIZE    = 1 << 16
-	DELAY_CLEAN_USER_RESOURCE = 1800
-	DELAY_USER_ONLINE         = 30
-	USE_FASE_ONLINE_MAP       = true
+	CHANNEL_LOCKS                  = 4
+	CHANNEL_SCAVENGER              = 4
+	MULTI_CAST_BUFFER_SIZE         = 1 << 16
+	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 19
+	DELAY_CLEAN_USER_RESOURCE      = 1800
+	DELAY_USER_ONLINE              = 30
+	USE_FASE_ONLINE_MAP            = true
 
 	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
 	//CHANNEL_LOCKS				= 8
@@ -175,7 +176,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.UserStateChan = make(chan *UserState, 1024)
 
 		// 多级channel
-		channel.MultiCastStage0Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
+		channel.MultiCastStage0Chan = make(chan *lib.PostMessage, MULTI_CAST_STAGE_0_BUFFER_SIZE)
 		channel.MultiCastStage1Chan = make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 
 		channel.Users = make(map[string]*User, 0)
