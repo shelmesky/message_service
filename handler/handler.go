@@ -956,6 +956,7 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 					}
 				}
 			} else {
+				// TODO: fix me: temp buffer cause GC heavily
 				new_post_message := CopyMessage(channel, post_message)
 				post_message_temp_buffer = append(post_message_temp_buffer, new_post_message)
 				channel.PostMessagePool.Put(post_message)
