@@ -912,7 +912,7 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 		select {
 		case user = <-user_channel:
 			user_list[user.ID] = user
-			utils.Log.Printf("ChannelSenderStage2 [%d] got user: %s\n", idx, user.ID)
+			utils.Log.Printf("Channel [%s] SenderStage2 [%d] got user: %s\n", channel_name, idx, user.ID)
 
 			// 发送本地缓存中的消息给用户
 			if len(post_message_temp_buffer) > 0 {
@@ -1024,7 +1024,7 @@ func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx
 	for {
 		select {
 		case user = <-scavenger_chan:
-			utils.Log.Printf("Scavenger [%d] got user: %s\n", scavenger_idx, user.ID)
+			utils.Log.Printf("Channel [%s] Scavenger [%d] got user: %s\n", channel.Name, scavenger_idx, user.ID)
 			user_list[user.ID] = user
 
 			user.SpinLock.Lock()
