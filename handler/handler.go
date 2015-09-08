@@ -24,7 +24,7 @@ const (
 	CHANNEL_SCAVENGER              = 4
 	MULTI_CAST_BUFFER_SIZE         = 1 << 16
 	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 19
-	DELAY_CLEAN_USER_RESOURCE      = 1800
+	DELAY_CLEAN_USER_RESOURCE      = 120
 	DELAY_USER_ONLINE              = 30
 	USE_FASE_ONLINE_MAP            = true
 
@@ -299,6 +299,7 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 
 	if user, ok := this.Users[user_id]; ok {
 		user.MessageBuffer.Init()
+		user.MessageBuffer = nil
 		delete(this.Users, user_id)
 		users_lock.Unlock()
 		return true, nil
@@ -941,6 +942,18 @@ func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_ch
 				if userid == "" {
 					for key := range user_list {
 						if user, ok = user_list[key]; ok {
+							if user == nil {
+								delete(user_list, key)
+								utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
+								continue
+							}
+
+							if user.MessageBuffer == nil {
+								delete(user_list, key)
+								utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
+								continue
+							}
+
 							new_post_message := CopyMessage(channel, post_message)
 							user.SpinLock.Lock()
 							user.MessageBuffer.PushBack(new_post_message)
