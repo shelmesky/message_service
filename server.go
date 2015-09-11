@@ -248,6 +248,7 @@ func main() {
 	router.HandleFunc("/api/poll", handler.GlobalOptionsHandler).Methods("OPTIONS")
 
 	router.HandleFunc("/api/users", handler.OnlineUsersHandler).Methods("GET")
+	router.HandleFunc("/api/users/simple", handler.OnlineUsersSimpleHandler).Methods("GET")
 
 	router.HandleFunc("/api/add/{channel_name}", handler.ChannelAddHandler).Methods("GET")
 

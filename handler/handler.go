@@ -579,6 +579,50 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
+func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+
+	var online_users_simple lib.OnlineUsersSimple
+	var channel_name string
+
+	all_channel.RLock.RLock()
+	defer all_channel.RLock.RUnlock()
+
+	channel_name = req.Header.Get("channel")
+	channel_name = strings.Trim(channel_name, " ")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
+		return
+	}
+
+	channel := GetChannel(channel_name)
+
+	online_users_simple.Length = atomic.LoadUint64(&channel.RealUserCount)
+	online_users_simple.Result = 0
+
+	buf, err := ffjson.Marshal(online_users_simple)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
+}
+
 func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {

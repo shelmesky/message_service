@@ -28,6 +28,11 @@ type OnlineUsers struct {
 	UserList []string `json:"users"`
 }
 
+type OnlineUsersSimple struct {
+	Result int    `json:"result"`
+	Length uint64 `json:"length"`
+}
+
 type ChannelStatus struct {
 	Name          string `json:"name"`
 	UserCount     uint64 `json:"user_count"`
