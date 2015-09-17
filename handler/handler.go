@@ -828,6 +828,12 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel := GetChannel(channel_name)
 
+	if channel.PrepareClose == true {
+		utils.Log.Printf("[%s] Channel: [%s] will be closed.\n", req.RemoteAddr, channel_name)
+		http.Error(w, "channel will be closed", 500)
+		return
+	}
+
 	user, err := channel.GetUser(user_id)
 	if err != nil {
 		user, err = channel.AddUser(user_id)
@@ -1236,9 +1242,9 @@ func StartGlobalScavenger() chan bool {
 					now := time.Now().Unix()
 					if atomic.LoadUint64(&channel.UserCount) == 0 && now-channel.LastPostUpdate > DELAY_CHANNEL_POST {
 						all_channel.Lock.Lock()
-						utils.Log.Printf("Channel [%s] will be removed.\n", channel_name)
-
 						channel.PrepareClose = true
+
+						utils.Log.Printf("Channel [%s] will be removed.\n", channel_name)
 
 						// 等待Channel相关的goroutine退出
 						for idx := range channel.CloseChan {
