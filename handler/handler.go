@@ -20,13 +20,18 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS                  = 4
-	CHANNEL_SCAVENGER              = 4
+	CHANNEL_LOCKS     = 4
+	CHANNEL_SCAVENGER = 4
+
 	MULTI_CAST_BUFFER_SIZE         = 1 << 16
 	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 19
-	DELAY_CLEAN_USER_RESOURCE      = 120
-	DELAY_USER_ONLINE              = 30
-	USE_FASE_ONLINE_MAP            = true
+
+	DELAY_CLEAN_USER_RESOURCE    = 20
+	DELAY_USER_ONLINE            = 12
+	DELAY_CLEAN_CHANNEL_RESOURCE = 1
+	DELAY_CHANNEL_POST           = 10
+
+	USE_FASE_ONLINE_MAP = true
 
 	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
 	//CHANNEL_LOCKS				= 8
@@ -85,6 +90,9 @@ type Channel struct {
 	PrepareClose bool
 	Closed       bool
 	CloseChan    []chan bool
+
+	LastPostUpdate int64
+
 	//SingleCastChan chan *PostMessage
 }
 
@@ -119,6 +127,8 @@ func init() {
 	all_channel.RLock = new(sync.RWMutex)
 	all_channel.Lock = new(sync.Mutex)
 	all_channel.Channels = make(map[string]*Channel, 0)
+
+	StartGlobalScavenger()
 }
 
 func NewUser(user_id string) *User {
@@ -548,6 +558,12 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if channel.PrepareClose == true {
+		utils.Log.Printf("[%s] Channel: [%s] will be closed.\n", req.RemoteAddr, channel_name)
+		http.Error(w, "channel will be closed", 500)
+		return
+	}
+
 	message_id := utils.MakeRandomID()
 	post_message.MessageID = message_id
 
@@ -884,14 +900,18 @@ func StartChannelSenderStage0(channel_name string, stage0_channel, stage1_channe
 
 		var post_message *lib.PostMessage
 
+		channel := GetChannel(channel_name)
+
 		for {
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] SenderStage0 has quit...\n", channel_name)
+				close_chan <- true
 				return
 
 			case post_message = <-stage0_channel:
 				stage1_channel <- post_message
+				channel.LastPostUpdate = time.Now().Unix()
 				if ServerDebug {
 					utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
 				}
@@ -921,6 +941,7 @@ func StartChannelSenderStage1(channel_name string, stage1_channel chan *lib.Post
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] SenderStage1 has quit...\n", channel_name)
+				close_chan <- true
 				return
 
 			case post_message = <-stage1_channel:
@@ -982,6 +1003,7 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] SenderStage2 [%d] has quit...\n", channel_name, idx)
+				close_chan <- true
 				return
 
 			case user = <-user_channel:
@@ -1080,6 +1102,7 @@ func StartUserStateCollector(channel *Channel) chan bool {
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] UserStateCollector has quit...\n", channel.Name)
+				close_chan <- true
 				return
 
 			case user_state = <-channel.UserStateChan:
@@ -1127,6 +1150,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] Scavenger [%d] has quit...\n", channel.Name, scavenger_idx)
+				close_chan <- true
 				return
 
 			case user = <-scavenger_chan:
@@ -1186,6 +1210,79 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 						}
 					}
 				}
+			}
+		}
+	}()
+
+	return close_chan
+}
+
+func StartGlobalScavenger() chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		var channel *Channel
+
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Println("Global Scavenger has quite.")
+				return
+
+			case <-wheel_seconds.After(DELAY_CLEAN_CHANNEL_RESOURCE * time.Second):
+				all_channel.RLock.RLock()
+
+				for channel_name := range all_channel.Channels {
+					channel = all_channel.Channels[channel_name]
+					now := time.Now().Unix()
+					if atomic.LoadUint64(&channel.UserCount) == 0 && now-channel.LastPostUpdate > DELAY_CHANNEL_POST {
+						all_channel.Lock.Lock()
+						utils.Log.Printf("Channel [%s] will be removed.\n", channel_name)
+
+						channel.PrepareClose = true
+
+						// 等待Channel相关的goroutine退出
+						for idx := range channel.CloseChan {
+							close_chan := channel.CloseChan[idx]
+							close_chan <- true
+							<-close_chan
+							close(close_chan)
+							close_chan = nil
+						}
+
+						// 关闭相关channel
+						close(channel.MultiCastStage0Chan)
+						close(channel.MultiCastStage1Chan)
+						channel.MultiCastStage0Chan = nil
+						channel.MultiCastStage1Chan = nil
+
+						for idx := range channel.MultiCastStage2Chan {
+							stage_chan := channel.MultiCastStage2Chan[idx]
+							close(stage_chan)
+							stage_chan = nil
+						}
+
+						for idx := range channel.ScavengerChan {
+							scavenger_chan := channel.ScavengerChan[idx]
+							close(scavenger_chan)
+							scavenger_chan = nil
+						}
+
+						for idx := range channel.UserChan {
+							user_state_chan := channel.UserChan[idx]
+							close(user_state_chan)
+							user_state_chan = nil
+						}
+
+						channel.Closed = true
+
+						delete(all_channel.Channels, channel_name)
+						utils.Log.Printf("Channel [%s] was removed.\n", channel_name)
+
+						all_channel.Lock.Unlock()
+					}
+				}
+
+				all_channel.RLock.RUnlock()
 			}
 		}
 	}()
