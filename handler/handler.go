@@ -81,6 +81,10 @@ type Channel struct {
 	UserStatePool   *sync.Pool
 
 	ChannelRLock *sync.RWMutex
+
+	PrepareClose bool
+	Closed       bool
+	CloseChan    []chan bool
 	//SingleCastChan chan *PostMessage
 }
 
@@ -194,21 +198,26 @@ func AddChannel(channel_name string) *Channel {
 			channel.UserChan = append(channel.UserChan, user_chan)
 			stage_channel := make(chan *lib.PostMessage, MULTI_CAST_BUFFER_SIZE)
 			channel.MultiCastStage2Chan = append(channel.MultiCastStage2Chan, stage_channel)
-			go ChannelSenderStage2(channel_name, user_chan, stage_channel, j)
+			close_chan := StartChannelSenderStage2(channel_name, user_chan, stage_channel, j)
+			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
-		go ChannelSenderStage0(channel_name, channel.MultiCastStage0Chan, channel.MultiCastStage1Chan)
-		go ChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
+		close_chan := StartChannelSenderStage0(channel_name, channel.MultiCastStage0Chan, channel.MultiCastStage1Chan)
+		channel.CloseChan = append(channel.CloseChan, close_chan)
+		close_chan = StartChannelSenderStage1(channel_name, channel.MultiCastStage1Chan, channel.MultiCastStage2Chan)
+		channel.CloseChan = append(channel.CloseChan, close_chan)
 
 		// 维护在线用户列表
-		go UserStateCollector(channel)
+		close_chan = StartUserStateCollector(channel)
+		channel.CloseChan = append(channel.CloseChan, close_chan)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
 		// 定时清除Channel内过期的用户资源
 		for k := 0; k < CHANNEL_SCAVENGER; k++ {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
-			go ChannelScavenger(channel, scavenger_chan, k, channel.UserStateChan)
+			close_chan = StartChannelScavenger(channel, scavenger_chan, k, channel.UserStateChan)
+			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
 		// 对象池
@@ -863,163 +872,186 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
-func ChannelSenderStage0(channel_name string, stage0_channel, stage1_channel chan *lib.PostMessage) {
-	defer func() {
-		if err := recover(); err != nil {
-			utils.Log.Println(err)
-			debug.PrintStack()
+func StartChannelSenderStage0(channel_name string, stage0_channel, stage1_channel chan *lib.PostMessage) chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.Log.Println(err)
+				debug.PrintStack()
+			}
+		}()
+
+		var post_message *lib.PostMessage
+
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Printf("Channel [%s] SenderStage0 has quit...\n", channel_name)
+				return
+
+			case post_message = <-stage0_channel:
+				stage1_channel <- post_message
+				if ServerDebug {
+					utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
+				}
+			}
 		}
 	}()
 
-	var ok bool
-	var post_message *lib.PostMessage
-
-	for {
-		if post_message, ok = <-stage0_channel; ok {
-			stage1_channel <- post_message
-			if ServerDebug {
-				utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
-			}
-		} else {
-			err_msg := fmt.Sprintf("ChannelSenderStage0: Stage0 channel has closed, channel: %s!!!\n", channel_name)
-			utils.Log.Printf(err_msg)
-			panic(err_msg)
-		}
-	}
+	return close_chan
 }
 
-func ChannelSenderStage1(channel_name string, stage1_channel chan *lib.PostMessage, stage2_channel_list []chan *lib.PostMessage) {
-	defer func() {
-		if err := recover(); err != nil {
-			utils.Log.Println(err)
-			debug.PrintStack()
-		}
-	}()
-
-	var idx int
-	var ok bool
-	var post_message *lib.PostMessage
-
-	channel := GetChannel(channel_name)
-
-	for {
-		if post_message, ok = <-stage1_channel; ok {
-			if post_message.ToUser == "" {
-				// channel内广播消息
-				for idx = range stage2_channel_list {
-					new_post_message := CopyMessage(channel, post_message)
-					select {
-					case stage2_channel_list[idx] <- new_post_message:
-					case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-						utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
-					}
-				}
-				channel.PostMessagePool.Put(post_message)
-			} else {
-				// 发送给channel的指定用户
-				user_id_hash := utils.GenKey(post_message.ToUser)
-				hash_key := user_id_hash % CHANNEL_LOCKS
-				select {
-				case stage2_channel_list[hash_key] <- post_message:
-				case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-					utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
-				}
+func StartChannelSenderStage1(channel_name string, stage1_channel chan *lib.PostMessage, stage2_channel_list []chan *lib.PostMessage) chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.Log.Println(err)
+				debug.PrintStack()
 			}
-			if ServerDebug {
-				utils.Log.Println("ChannelSenderStage1: send post_message to stage2_channel", post_message)
-			}
-		}
-	}
-}
+		}()
 
-func ChannelSenderStage2(channel_name string, user_channel chan *User, stage2_channel chan *lib.PostMessage, idx int) {
-	defer func() {
-		if err := recover(); err != nil {
-			utils.Log.Println(err)
-			debug.PrintStack()
-		}
-	}()
+		var idx int
+		var post_message *lib.PostMessage
 
-	var post_message *lib.PostMessage
-	var user *User
-	var ok bool
+		channel := GetChannel(channel_name)
 
-	user_list := make(map[string]*User, 1024)
-	post_message_temp_buffer := make([]*lib.PostMessage, 0)
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Printf("Channel [%s] SenderStage1 has quit...\n", channel_name)
+				return
 
-	// 如果当前Sender存在用户则保存到用户消息缓存
-	// 否则保存到当前Sender的消息缓存
-	// 等到接收到第一个用户时，发送给用户
-
-	channel := GetChannel(channel_name)
-
-	for {
-		select {
-		case user = <-user_channel:
-			user_list[user.ID] = user
-			utils.Log.Printf("Channel [%s] SenderStage2 [%d] got user: %s\n", channel_name, idx, user.ID)
-
-			// 发送本地缓存中的消息给用户
-			if len(post_message_temp_buffer) > 0 {
-				for key := range user_list {
-					if user, ok = user_list[key]; ok {
-						for idx := range post_message_temp_buffer {
-							new_post_message := CopyMessage(channel, post_message_temp_buffer[idx])
-							user.SpinLock.Lock()
-							user.MessageBuffer.PushBack(new_post_message)
-							user.SpinLock.Unlock()
-						}
-					}
-				}
-				for idx := range post_message_temp_buffer {
-					channel.PostMessagePool.Put(post_message_temp_buffer[idx])
-				}
-				post_message_temp_buffer = nil
-				post_message_temp_buffer = make([]*lib.PostMessage, 0)
-			}
-
-		case post_message = <-stage2_channel:
-			if len(user_list) > 0 {
-
-				userid := post_message.ToUser
-
-				if userid == "" {
-					for key := range user_list {
-						if user, ok = user_list[key]; ok {
-							if user == nil {
-								delete(user_list, key)
-								utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
-								continue
-							}
-
-							if user.MessageBuffer == nil {
-								delete(user_list, key)
-								utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
-								continue
-							}
-
-							new_post_message := CopyMessage(channel, post_message)
-							user.SpinLock.Lock()
-							user.MessageBuffer.PushBack(new_post_message)
-							user.SpinLock.Unlock()
+			case post_message = <-stage1_channel:
+				if post_message.ToUser == "" {
+					// channel内广播消息
+					for idx = range stage2_channel_list {
+						new_post_message := CopyMessage(channel, post_message)
+						select {
+						case stage2_channel_list[idx] <- new_post_message:
+						case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+							utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
 						}
 					}
 					channel.PostMessagePool.Put(post_message)
 				} else {
-					if user, ok := channel.Users[userid]; ok {
-						user.SpinLock.Lock()
-						user.MessageBuffer.PushBack(post_message)
-						user.SpinLock.Unlock()
+					// 发送给channel的指定用户
+					user_id_hash := utils.GenKey(post_message.ToUser)
+					hash_key := user_id_hash % CHANNEL_LOCKS
+					select {
+					case stage2_channel_list[hash_key] <- post_message:
+					case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+						utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
 					}
 				}
-			} else {
-				// TODO: fix me: temp buffer cause GC heavily
-				new_post_message := CopyMessage(channel, post_message)
-				post_message_temp_buffer = append(post_message_temp_buffer, new_post_message)
-				channel.PostMessagePool.Put(post_message)
+				if ServerDebug {
+					utils.Log.Println("ChannelSenderStage1: send post_message to stage2_channel", post_message)
+				}
 			}
 		}
-	}
+	}()
+
+	return close_chan
+}
+
+func StartChannelSenderStage2(channel_name string, user_channel chan *User, stage2_channel chan *lib.PostMessage, idx int) chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.Log.Println(err)
+				debug.PrintStack()
+			}
+		}()
+
+		var post_message *lib.PostMessage
+		var user *User
+		var ok bool
+
+		user_list := make(map[string]*User, 1024)
+		post_message_temp_buffer := make([]*lib.PostMessage, 0)
+
+		// 如果当前Sender存在用户则保存到用户消息缓存
+		// 否则保存到当前Sender的消息缓存
+		// 等到接收到第一个用户时，发送给用户
+
+		channel := GetChannel(channel_name)
+
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Printf("Channel [%s] SenderStage2 [%d] has quit...\n", channel_name, idx)
+				return
+
+			case user = <-user_channel:
+				user_list[user.ID] = user
+				utils.Log.Printf("Channel [%s] SenderStage2 [%d] got user: %s\n", channel_name, idx, user.ID)
+
+				// 发送本地缓存中的消息给用户
+				if len(post_message_temp_buffer) > 0 {
+					for key := range user_list {
+						if user, ok = user_list[key]; ok {
+							for idx := range post_message_temp_buffer {
+								new_post_message := CopyMessage(channel, post_message_temp_buffer[idx])
+								user.SpinLock.Lock()
+								user.MessageBuffer.PushBack(new_post_message)
+								user.SpinLock.Unlock()
+							}
+						}
+					}
+					for idx := range post_message_temp_buffer {
+						channel.PostMessagePool.Put(post_message_temp_buffer[idx])
+					}
+					post_message_temp_buffer = nil
+					post_message_temp_buffer = make([]*lib.PostMessage, 0)
+				}
+
+			case post_message = <-stage2_channel:
+				if len(user_list) > 0 {
+
+					userid := post_message.ToUser
+
+					if userid == "" {
+						for key := range user_list {
+							if user, ok = user_list[key]; ok {
+								if user == nil {
+									delete(user_list, key)
+									utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
+									continue
+								}
+
+								if user.MessageBuffer == nil {
+									delete(user_list, key)
+									utils.Log.Printf("Channel SenderStage2 [%d] clean user: %s\n", idx, key)
+									continue
+								}
+
+								new_post_message := CopyMessage(channel, post_message)
+								user.SpinLock.Lock()
+								user.MessageBuffer.PushBack(new_post_message)
+								user.SpinLock.Unlock()
+							}
+						}
+						channel.PostMessagePool.Put(post_message)
+					} else {
+						if user, ok := channel.Users[userid]; ok {
+							user.SpinLock.Lock()
+							user.MessageBuffer.PushBack(post_message)
+							user.SpinLock.Unlock()
+						}
+					}
+				} else {
+					// TODO: fix me: temp buffer cause GC heavily
+					new_post_message := CopyMessage(channel, post_message)
+					post_message_temp_buffer = append(post_message_temp_buffer, new_post_message)
+					channel.PostMessagePool.Put(post_message)
+				}
+			}
+		}
+	}()
+
+	return close_chan
 }
 
 func CopyMessage(channel *Channel, post_message *lib.PostMessage) *lib.PostMessage {
@@ -1032,111 +1064,131 @@ func CopyMessage(channel *Channel, post_message *lib.PostMessage) *lib.PostMessa
 }
 
 // 维护channel的在线用户列表
-func UserStateCollector(channel *Channel) {
-	defer func() {
-		if err := recover(); err != nil {
-			utils.Log.Println(err)
-			debug.PrintStack()
+func StartUserStateCollector(channel *Channel) chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.Log.Println(err)
+				debug.PrintStack()
+			}
+		}()
+
+		var user_state *UserState
+
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Printf("Channel [%s] UserStateCollector has quit...\n", channel.Name)
+				return
+
+			case user_state = <-channel.UserStateChan:
+				if ServerDebug == true {
+					utils.Log.Println("User change state:", user_state)
+				}
+				channel.OnlineUsersLock.Lock()
+				if user_state.State == true {
+					channel.OnlineUsers[user_state.ID] = true
+					atomic.AddUint64(&channel.RealUserCount, 1)
+				} else {
+					if _, ok := channel.OnlineUsers[user_state.ID]; ok {
+						delete(channel.OnlineUsers, user_state.ID)
+						atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
+					}
+				}
+				channel.OnlineUsersLock.Unlock()
+
+				channel.UserStatePool.Put(user_state)
+			}
 		}
 	}()
 
-	var user_state *UserState
-
-	for {
-		user_state = <-channel.UserStateChan
-		if ServerDebug == true {
-			utils.Log.Println("User change state:", user_state)
-		}
-		channel.OnlineUsersLock.Lock()
-		if user_state.State == true {
-			channel.OnlineUsers[user_state.ID] = true
-			atomic.AddUint64(&channel.RealUserCount, 1)
-		} else {
-			if _, ok := channel.OnlineUsers[user_state.ID]; ok {
-				delete(channel.OnlineUsers, user_state.ID)
-				atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
-			}
-		}
-		channel.OnlineUsersLock.Unlock()
-
-		channel.UserStatePool.Put(user_state)
-	}
+	return close_chan
 }
 
 // 定时清除用户和相关资源
-func ChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int, user_state_chan chan *UserState) {
-	defer func() {
-		if err := recover(); err != nil {
-			utils.Log.Println(err)
-			debug.PrintStack()
-		}
-	}()
+func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int, user_state_chan chan *UserState) chan bool {
+	close_chan := make(chan bool)
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				utils.Log.Println(err)
+				debug.PrintStack()
+			}
+		}()
 
-	var user *User
-	var now int64
-	var state *UserState
+		var user *User
+		var now int64
+		var state *UserState
 
-	user_list := make(map[string]*User, 1024)
+		user_list := make(map[string]*User, 1024)
 
-	for {
-		select {
-		case user = <-scavenger_chan:
-			utils.Log.Printf("Channel [%s] Scavenger [%d] got user: %s\n", channel.Name, scavenger_idx, user.ID)
-			user_list[user.ID] = user
+		for {
+			select {
+			case <-close_chan:
+				utils.Log.Printf("Channel [%s] Scavenger [%d] has quit...\n", channel.Name, scavenger_idx)
+				return
 
-			user.SpinLock.Lock()
-			user.Online = true
-			user.SpinLock.Unlock()
+			case user = <-scavenger_chan:
+				utils.Log.Printf("Channel [%s] Scavenger [%d] got user: %s\n", channel.Name, scavenger_idx, user.ID)
+				user_list[user.ID] = user
 
-			state = channel.UserStatePool.Get().(*UserState)
-			state.ID = user.ID
-			state.State = true
-			user_state_chan <- state
+				user.SpinLock.Lock()
+				user.Online = true
+				user.SpinLock.Unlock()
 
-			atomic.AddUint64(&channel.UserCount, 1)
+				state = channel.UserStatePool.Get().(*UserState)
+				state.ID = user.ID
+				state.State = true
+				user_state_chan <- state
 
-		case _ = <-wheel_seconds.After(5 * time.Second):
-			if len(user_list) > 0 {
-				for idx := range user_list {
-					now = time.Now().Unix()
-					user = user_list[idx]
+				atomic.AddUint64(&channel.UserCount, 1)
 
-					// clean user's resource and free memory
-					if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
-						channel.DeleteUser(user.ID)
-						delete(user_list, user.ID)
-						atomic.AddUint64(&channel.UserCount, ^uint64(0))
-						utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
-					}
+			case _ = <-wheel_seconds.After(5 * time.Second):
+				if len(user_list) > 0 {
+					for idx := range user_list {
+						now = time.Now().Unix()
+						user = user_list[idx]
 
-					// generate online user list
-					if now-user.LastUpdate > DELAY_USER_ONLINE {
-						user.SpinLock.Lock()
-						if user.Online == true {
-							user.Online = false
-
-							state = channel.UserStatePool.Get().(*UserState)
-							state.ID = user.ID
-							state.State = false
-							user_state_chan <- state
+						// clean user's resource and free memory
+						if now-user.LastUpdate > DELAY_CLEAN_USER_RESOURCE {
+							channel.DeleteUser(user.ID)
+							delete(user_list, user.ID)
+							atomic.AddUint64(&channel.UserCount, ^uint64(0))
+							utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
 						}
-						user.SpinLock.Unlock()
-					}
 
-					if now-user.LastUpdate <= DELAY_USER_ONLINE {
-						user.SpinLock.Lock()
-						if user.Online == false {
-							user.Online = true
+						// generate online user list
+						if now-user.LastUpdate > DELAY_USER_ONLINE {
+							user.SpinLock.Lock()
+							if user.Online == true {
+								user.Online = false
 
-							state = channel.UserStatePool.Get().(*UserState)
-							state.ID = user.ID
-							state.State = true
-							user_state_chan <- state
+								state = channel.UserStatePool.Get().(*UserState)
+								state.ID = user.ID
+								state.State = false
+								user_state_chan <- state
+							}
+							user.SpinLock.Unlock()
 						}
-						user.SpinLock.Unlock()
+
+						if now-user.LastUpdate <= DELAY_USER_ONLINE {
+							user.SpinLock.Lock()
+							if user.Online == false {
+								user.Online = true
+
+								state = channel.UserStatePool.Get().(*UserState)
+								state.ID = user.ID
+								state.State = true
+								user_state_chan <- state
+							}
+							user.SpinLock.Unlock()
+						}
 					}
 				}
 			}
 		}
-	}
+	}()
+
+	return close_chan
 }
