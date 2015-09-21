@@ -1148,30 +1148,10 @@ func (mj *GeneralOnlineUsersSimple) MarshalJSONBuf(buf fflib.EncodingBuffer) err
 	buf.WriteString(`{"result":`)
 	fflib.FormatBits2(buf, uint64(mj.Result), 10, mj.Result < 0)
 	buf.WriteString(`,"user_tags":`)
-	if mj.UserTags != nil {
-		buf.WriteString(`[`)
-		for i, v := range mj.UserTags {
-			if i != 0 {
-				buf.WriteString(`,`)
-			}
-
-			{
-
-				if v == nil {
-					buf.WriteString("null")
-					return nil
-				}
-
-				err = v.MarshalJSONBuf(buf)
-				if err != nil {
-					return err
-				}
-
-			}
-		}
-		buf.WriteString(`]`)
-	} else {
-		buf.WriteString(`null`)
+	/* Falling back. type=map[string]*lib.OnlineUsersSimpleWithTag kind=map */
+	err = buf.Encode(mj.UserTags)
+	if err != nil {
+		return err
 	}
 	buf.WriteByte('}')
 	return nil
@@ -1348,12 +1328,12 @@ handle_Result:
 
 handle_UserTags:
 
-	/* handler: uj.UserTags type=[]*lib.OnlineUsersSimpleWithTag kind=slice quoted=false*/
+	/* handler: uj.UserTags type=map[string]*lib.OnlineUsersSimpleWithTag kind=map quoted=false*/
 
 	{
 
 		{
-			if tok != fflib.FFTok_left_brace && tok != fflib.FFTok_null {
+			if tok != fflib.FFTok_left_bracket && tok != fflib.FFTok_null {
 				return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for ", tok))
 			}
 		}
@@ -1362,11 +1342,13 @@ handle_UserTags:
 			uj.UserTags = nil
 		} else {
 
-			uj.UserTags = make([]*OnlineUsersSimpleWithTag, 0)
+			uj.UserTags = make(map[string]*OnlineUsersSimpleWithTag, 0)
 
 			wantVal := true
 
 			for {
+
+				var k string
 
 				var v *OnlineUsersSimpleWithTag
 
@@ -1374,7 +1356,7 @@ handle_UserTags:
 				if tok == fflib.FFTok_error {
 					goto tokerror
 				}
-				if tok == fflib.FFTok_right_brace {
+				if tok == fflib.FFTok_right_bracket {
 					break
 				}
 
@@ -1389,6 +1371,34 @@ handle_UserTags:
 					wantVal = true
 				}
 
+				/* handler: k type=string kind=string quoted=false*/
+
+				{
+
+					{
+						if tok != fflib.FFTok_string && tok != fflib.FFTok_null {
+							return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for string", tok))
+						}
+					}
+
+					if tok == fflib.FFTok_null {
+
+					} else {
+
+						outBuf := fs.Output.Bytes()
+
+						k = string(string(outBuf))
+
+					}
+				}
+
+				// Expect ':' after key
+				tok = fs.Scan()
+				if tok != fflib.FFTok_colon {
+					return fs.WrapErr(fmt.Errorf("wanted colon token, but got token: %v", tok))
+				}
+
+				tok = fs.Scan()
 				/* handler: v type=*lib.OnlineUsersSimpleWithTag kind=ptr quoted=false*/
 
 				{
@@ -1411,9 +1421,11 @@ handle_UserTags:
 					state = fflib.FFParse_after_value
 				}
 
-				uj.UserTags = append(uj.UserTags, v)
+				uj.UserTags[k] = v
+
 				wantVal = false
 			}
+
 		}
 	}
 

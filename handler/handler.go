@@ -36,6 +36,8 @@ const (
 
 	USE_FASE_ONLINE_MAP = true
 
+	CHANGE_USER_STATE_IN_REAL_TIME = true
+
 	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
 	//CHANNEL_LOCKS				= 8
 	//CHANNEL_SCAVENGER			= 8
@@ -656,7 +658,60 @@ func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
 
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+
+	var channel_name string
+	var general_online_users_simple lib.GeneralOnlineUsersSimple
+	var user_state_tag_map *lib.OnlineUsersSimpleWithTag
+	var ok bool
+
+	temp_tag_map := make(map[string]*lib.OnlineUsersSimpleWithTag, 10)
+
+	channel_name = req.Header.Get("channel")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
+		return
+	}
+
+	channel := GetChannel(channel_name)
+
+	channel.OnlineUsersLock.RLock()
+	for username := range channel.OnlineUsers {
+		state := channel.OnlineUsers[username]
+
+		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
+			user_state_tag_map = new(lib.OnlineUsersSimpleWithTag)
+			temp_tag_map[state.Tag] = user_state_tag_map
+		}
+
+		temp_tag_map[state.Tag].Length += 1
+	}
+	channel.OnlineUsersLock.RUnlock()
+
+	general_online_users_simple.Result = 0
+	general_online_users_simple.UserTags = temp_tag_map
+
+	buf, err := ffjson.Marshal(general_online_users_simple)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
 }
 
 func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
@@ -934,6 +989,17 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 					message_list_size += 1
 				}
 			}
+		}
+	}
+
+	// update user's tag when tag was changed
+	if CHANGE_USER_STATE_IN_REAL_TIME {
+		if user_tag != user.Tag {
+			state := channel.UserStatePool.Get().(*UserState)
+			state.ID = user.ID
+			state.Tag = user.Tag
+			state.State = true
+			channel.UserStateChan <- state
 		}
 	}
 

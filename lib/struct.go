@@ -39,8 +39,8 @@ type OnlineUsers struct {
 }
 
 type GeneralOnlineUsersSimple struct {
-	Result   int                         `json:"result"`
-	UserTags []*OnlineUsersSimpleWithTag `json:"user_tags"`
+	Result   int                                  `json:"result"`
+	UserTags map[string]*OnlineUsersSimpleWithTag `json:"user_tags"`
 }
 
 type OnlineUsersSimpleWithTag struct {
