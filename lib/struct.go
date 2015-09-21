@@ -22,10 +22,29 @@ type DeleteMessageReply struct {
 	Result int `json:"result"`
 }
 
+type GeneralOnlineUsers struct {
+	Result   int                            `json:"result"`
+	UserTags map[string]*OnlineUsersWithTag `json:"user_tags"`
+}
+
+type OnlineUsersWithTag struct {
+	Length   int      `json:"length"`
+	UserList []string `json:"users"`
+}
+
 type OnlineUsers struct {
 	Result   int      `json:"result"`
 	Length   int      `json:"length"`
 	UserList []string `json:"users"`
+}
+
+type GeneralOnlineUsersSimple struct {
+	Result   int                         `json:"result"`
+	UserTags []*OnlineUsersSimpleWithTag `json:"user_tags"`
+}
+
+type OnlineUsersSimpleWithTag struct {
+	Length uint64 `json:"length"`
 }
 
 type OnlineUsersSimple struct {

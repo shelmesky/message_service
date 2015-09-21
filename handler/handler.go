@@ -23,13 +23,16 @@ const (
 	CHANNEL_LOCKS     = 4
 	CHANNEL_SCAVENGER = 4
 
-	MULTI_CAST_BUFFER_SIZE         = 1 << 16
-	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 19
+	/* we support multiple channel,
+	so we must use small buffer size of channel,
+	except you use single channel for all user */
+	MULTI_CAST_BUFFER_SIZE         = 1 << 10
+	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 10
 
-	DELAY_CLEAN_USER_RESOURCE    = 20
-	DELAY_USER_ONLINE            = 12
+	DELAY_CLEAN_USER_RESOURCE    = 30
+	DELAY_USER_ONLINE            = 120
 	DELAY_CLEAN_CHANNEL_RESOURCE = 1
-	DELAY_CHANNEL_POST           = 10
+	DELAY_CHANNEL_POST           = 60
 
 	USE_FASE_ONLINE_MAP = true
 
@@ -61,6 +64,7 @@ type AllChannel struct {
 
 type UserState struct {
 	ID    string
+	Tag   string
 	State bool
 }
 
@@ -68,7 +72,7 @@ type Channel struct {
 	Name            string
 	Users           map[string]*User
 	UsersLock       []*sync.RWMutex
-	OnlineUsers     map[string]bool
+	OnlineUsers     map[string]*UserState
 	OnlineUsersLock *sync.RWMutex
 	UserCount       uint64
 	RealUserCount   uint64
@@ -104,6 +108,7 @@ type User struct {
 	MessageBuffer *list.List
 	Online        bool
 	SenderKey     uint32
+	Tag           string
 }
 
 type AddChannelReply struct {
@@ -199,7 +204,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.ChannelRLock = new(sync.RWMutex)
 
 		// 保存channel的在线用户
-		channel.OnlineUsers = make(map[string]bool, 1024)
+		channel.OnlineUsers = make(map[string]*UserState, 1024)
 		channel.OnlineUsersLock = new(sync.RWMutex)
 
 		// 创建Stage0/1/2的Sender
@@ -229,6 +234,8 @@ func AddChannel(channel_name string) *Channel {
 			close_chan = StartChannelScavenger(channel, scavenger_chan, k, channel.UserStateChan)
 			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
+
+		channel.LastPostUpdate = time.Now().Unix()
 
 		// 对象池
 		channel.PostMessagePool = &sync.Pool{
@@ -648,6 +655,10 @@ func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
 	ffjson.Pool(buf)
 }
 
+func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
+
+}
+
 func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -726,6 +737,65 @@ func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 
 	ffjson.Pool(buf)
+}
+
+func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			utils.Log.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+
+	var channel_name string
+	var general_online_users lib.GeneralOnlineUsers
+	var user_state_tag_map *lib.OnlineUsersWithTag
+	var ok bool
+
+	temp_tag_map := make(map[string]*lib.OnlineUsersWithTag, 10)
+
+	channel_name = req.Header.Get("channel")
+	if channel_name == "" {
+		utils.Log.Printf("[%s] channel name not in header\n", req.RemoteAddr)
+		http.Error(w, "channel name not in header", 400)
+		return
+	}
+
+	channel := GetChannel(channel_name)
+
+	channel.OnlineUsersLock.RLock()
+	for username := range channel.OnlineUsers {
+		state := channel.OnlineUsers[username]
+
+		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
+			user_state_tag_map = new(lib.OnlineUsersWithTag)
+			temp_tag_map[state.Tag] = user_state_tag_map
+		}
+
+		temp_tag_map[state.Tag].Length += 1
+		temp_tag_map[state.Tag].UserList = append(temp_tag_map[state.Tag].UserList, username)
+	}
+	channel.OnlineUsersLock.RUnlock()
+
+	general_online_users.Result = 0
+	general_online_users.UserTags = temp_tag_map
+
+	buf, err := ffjson.Marshal(general_online_users)
+	if err != nil {
+		utils.Log.Printf("[%s] Marshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+		http.Error(w, "Marshal json failed", 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Write(buf)
+
+	ffjson.Pool(buf)
+
 }
 
 func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
@@ -826,6 +896,13 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	user_tag := req.Header.Get("tag")
+	if user_tag == "" {
+		utils.Log.Printf("[%s] user_tag not in header\n", req.RemoteAddr)
+		http.Error(w, "user_tag name not in header", 400)
+		return
+	}
+
 	channel := GetChannel(channel_name)
 
 	if channel.PrepareClose == true {
@@ -860,6 +937,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	user.Tag = user_tag
 	user.LastUpdate = time.Now().Unix()
 	user.SpinLock.Unlock()
 
@@ -1103,6 +1181,7 @@ func StartUserStateCollector(channel *Channel) chan bool {
 		}()
 
 		var user_state *UserState
+		var ok bool
 
 		for {
 			select {
@@ -1113,21 +1192,21 @@ func StartUserStateCollector(channel *Channel) chan bool {
 
 			case user_state = <-channel.UserStateChan:
 				if ServerDebug == true {
-					utils.Log.Println("User change state:", user_state)
+					utils.Log.Printf("Channel [%s] User change state: [%s: %s]\n", channel.Name, user_state.ID, user_state.State)
 				}
+
 				channel.OnlineUsersLock.Lock()
 				if user_state.State == true {
-					channel.OnlineUsers[user_state.ID] = true
+					channel.OnlineUsers[user_state.ID] = user_state
 					atomic.AddUint64(&channel.RealUserCount, 1)
 				} else {
-					if _, ok := channel.OnlineUsers[user_state.ID]; ok {
+					if user_state, ok = channel.OnlineUsers[user_state.ID]; ok {
 						delete(channel.OnlineUsers, user_state.ID)
 						atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
+						channel.UserStatePool.Put(user_state)
 					}
 				}
 				channel.OnlineUsersLock.Unlock()
-
-				channel.UserStatePool.Put(user_state)
 			}
 		}
 	}()
@@ -1169,6 +1248,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 
 				state = channel.UserStatePool.Get().(*UserState)
 				state.ID = user.ID
+				state.Tag = user.Tag
 				state.State = true
 				user_state_chan <- state
 
@@ -1196,6 +1276,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 
 								state = channel.UserStatePool.Get().(*UserState)
 								state.ID = user.ID
+								state.Tag = user.Tag
 								state.State = false
 								user_state_chan <- state
 							}
@@ -1209,6 +1290,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 
 								state = channel.UserStatePool.Get().(*UserState)
 								state.ID = user.ID
+								state.Tag = user.Tag
 								state.State = true
 								user_state_chan <- state
 							}
