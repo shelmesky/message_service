@@ -68,6 +68,7 @@ type UserState struct {
 	ID    string
 	Tag   string
 	State bool
+	From  int
 }
 
 type Channel struct {
@@ -954,8 +955,6 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	user_tag := req.Header.Get("tag")
 	if user_tag == "" {
 		utils.Log.Printf("[%s] user_tag not in header\n", req.RemoteAddr)
-		http.Error(w, "user_tag name not in header", 400)
-		return
 	}
 
 	channel := GetChannel(channel_name)
@@ -993,17 +992,19 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// update user's tag when tag was changed
-	if CHANGE_USER_STATE_IN_REAL_TIME {
+	if CHANGE_USER_STATE_IN_REAL_TIME && user_tag != "" {
 		if user_tag != user.Tag {
 			state := channel.UserStatePool.Get().(*UserState)
 			state.ID = user.ID
 			state.Tag = user.Tag
 			state.State = true
+			state.From = 1
 			channel.UserStateChan <- state
 		}
+
+		user.Tag = user_tag
 	}
 
-	user.Tag = user_tag
 	user.LastUpdate = time.Now().Unix()
 	user.SpinLock.Unlock()
 
@@ -1264,11 +1265,15 @@ func StartUserStateCollector(channel *Channel) chan bool {
 				channel.OnlineUsersLock.Lock()
 				if user_state.State == true {
 					channel.OnlineUsers[user_state.ID] = user_state
-					atomic.AddUint64(&channel.RealUserCount, 1)
+					if user_state.From == 0 {
+						atomic.AddUint64(&channel.RealUserCount, 1)
+					}
 				} else {
 					if user_state, ok = channel.OnlineUsers[user_state.ID]; ok {
-						delete(channel.OnlineUsers, user_state.ID)
-						atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
+						if user_state.From == 0 {
+							delete(channel.OnlineUsers, user_state.ID)
+							atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
+						}
 						channel.UserStatePool.Put(user_state)
 					}
 				}
@@ -1316,6 +1321,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 				state.ID = user.ID
 				state.Tag = user.Tag
 				state.State = true
+				state.From = 0
 				user_state_chan <- state
 
 				atomic.AddUint64(&channel.UserCount, 1)
@@ -1344,6 +1350,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 								state.ID = user.ID
 								state.Tag = user.Tag
 								state.State = false
+								state.From = 0
 								user_state_chan <- state
 							}
 							user.SpinLock.Unlock()
@@ -1358,6 +1365,7 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 								state.ID = user.ID
 								state.Tag = user.Tag
 								state.State = true
+								state.From = 0
 								user_state_chan <- state
 							}
 							user.SpinLock.Unlock()
