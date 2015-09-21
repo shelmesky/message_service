@@ -991,6 +991,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// TODO: this block can not update users's state
 	// update user's tag when tag was changed
 	if CHANGE_USER_STATE_IN_REAL_TIME && user_tag != "" {
 		if user_tag != user.Tag {
