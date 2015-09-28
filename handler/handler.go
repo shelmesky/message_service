@@ -991,13 +991,15 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// TODO: this block can not update users's state
 	// update user's tag when tag was changed
 	if CHANGE_USER_STATE_IN_REAL_TIME && user_tag != "" {
-		if user_tag != user.Tag {
+		if user_tag != user.Tag && user.Tag != "" {
+			if ServerDebug {
+				utils.Log.Printf("Change user [%s] tag %s->%s\n", user_id, user.Tag, user_tag)
+			}
 			state := channel.UserStatePool.Get().(*UserState)
-			state.ID = user.ID
-			state.Tag = user.Tag
+			state.ID = user_id
+			state.Tag = user_tag
 			state.State = true
 			state.From = 1
 			channel.UserStateChan <- state
@@ -1260,9 +1262,11 @@ func StartUserStateCollector(channel *Channel) chan bool {
 
 			case user_state = <-channel.UserStateChan:
 				if ServerDebug == true {
-					utils.Log.Printf("Channel [%s] User change state: [%s: %s]\n", channel.Name, user_state.ID, user_state.State)
+					utils.Log.Printf("Channel [%s] User change state: [%s: %v]\n", channel.Name, user_state.ID, user_state.State)
 				}
 
+				// 只有State为0时，才更新channel的在线用户数
+				// 非0时，只更新用户状态
 				channel.OnlineUsersLock.Lock()
 				if user_state.State == true {
 					channel.OnlineUsers[user_state.ID] = user_state
