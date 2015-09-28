@@ -986,6 +986,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	user_tag := req.Header.Get("tag")
 	if user_tag == "" {
+		user_tag = "UNKNOW"
 		utils.Log.Printf("[%s] user_tag not in header\n", req.RemoteAddr)
 	}
 
