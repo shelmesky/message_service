@@ -29,10 +29,10 @@ const (
 	MULTI_CAST_BUFFER_SIZE         = 1 << 10
 	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 10
 
-	DELAY_CLEAN_USER_RESOURCE    = 30
-	DELAY_USER_ONLINE            = 120
-	DELAY_CLEAN_CHANNEL_RESOURCE = 1
-	DELAY_CHANNEL_POST           = 60
+	DELAY_USER_ONLINE             = 120 // set user offline
+	DELAY_CLEAN_USER_RESOURCE     = 30  // clean user's resource
+	DELAY_CHANNEL_POST            = 150 // remove channel
+	PERIOD_CLEAN_CHANNEL_RESOURCE = 1
 
 	USE_FASE_ONLINE_MAP = true
 
@@ -91,6 +91,13 @@ type Channel struct {
 	PostReplyPool   *sync.Pool
 	PollMessagePool *sync.Pool
 	UserStatePool   *sync.Pool
+
+	GeneralOnlineUsersPool       *sync.Pool
+	OnlineUsersTagPool           *sync.Pool
+	GeneralSimpleOnlineUsersPool *sync.Pool
+	SimpleOnlineUsersTagPool     *sync.Pool
+
+	StringListPool *sync.Pool
 
 	ChannelRLock *sync.RWMutex
 
@@ -262,6 +269,20 @@ func AddChannel(channel_name string) *Channel {
 		channel.UserStatePool = &sync.Pool{
 			New: func() interface{} {
 				return new(UserState)
+			},
+		}
+
+		channel.GeneralOnlineUsersPool = &sync.Pool{
+			New: func() interface{} {
+				general_online_users := new(lib.GeneralOnlineUsers)
+				general_online_users.UserTags = make(map[string]*lib.OnlineUsersWithTag)
+				return general_online_users
+			},
+		}
+
+		channel.OnlineUsersTagPool = &sync.Pool{
+			New: func() interface{} {
+				return new(lib.OnlineUsersWithTag)
 			},
 		}
 
@@ -808,11 +829,8 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
 
 	var channel_name string
-	var general_online_users lib.GeneralOnlineUsers
 	var user_state_tag_map *lib.OnlineUsersWithTag
 	var ok bool
-
-	temp_tag_map := make(map[string]*lib.OnlineUsersWithTag, 10)
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -824,16 +842,23 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	channel := GetChannel(channel_name)
 
 	channel.OnlineUsersLock.RLock()
+
+	general_online_users := channel.GeneralOnlineUsersPool.Get().(*lib.GeneralOnlineUsers)
+	temp_tag_map := general_online_users.UserTags
+
 	for username := range channel.OnlineUsers {
 		state := channel.OnlineUsers[username]
 
 		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
-			user_state_tag_map = new(lib.OnlineUsersWithTag)
+			user_state_tag_map = channel.OnlineUsersTagPool.Get().(*lib.OnlineUsersWithTag)
 			temp_tag_map[state.Tag] = user_state_tag_map
 		}
 
 		temp_tag_map[state.Tag].Length += 1
 		temp_tag_map[state.Tag].UserList = append(temp_tag_map[state.Tag].UserList, username)
+
+		utils.Log.Println("user_state_tag_map:", user_state_tag_map)
+		utils.Log.Println("temp_tag_map:", temp_tag_map)
 	}
 	channel.OnlineUsersLock.RUnlock()
 
@@ -852,6 +877,13 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	ffjson.Pool(buf)
 
+	for idx := range general_online_users.UserTags {
+		general_online_users.UserTags[idx].UserList = make([]string, 0)
+		general_online_users.UserTags[idx].Length = 0
+		channel.OnlineUsersTagPool.Put(general_online_users.UserTags[idx])
+	}
+
+	channel.GeneralOnlineUsersPool.Put(general_online_users)
 }
 
 func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
@@ -1395,12 +1427,13 @@ func StartGlobalScavenger() chan bool {
 				utils.Log.Println("Global Scavenger has quite.")
 				return
 
-			case <-wheel_seconds.After(DELAY_CLEAN_CHANNEL_RESOURCE * time.Second):
+			case <-wheel_seconds.After(PERIOD_CLEAN_CHANNEL_RESOURCE * time.Second):
 				all_channel.RLock.RLock()
 
 				for channel_name := range all_channel.Channels {
 					channel = all_channel.Channels[channel_name]
 					now := time.Now().Unix()
+					// 如果channel的用户数量为0，并且channel在DELAY_CHANNEL_POST内没有收到过消息，则清除channel
 					if atomic.LoadUint64(&channel.UserCount) == 0 && now-channel.LastPostUpdate > DELAY_CHANNEL_POST {
 						all_channel.Lock.Lock()
 						channel.PrepareClose = true
