@@ -284,6 +284,20 @@ func AddChannel(channel_name string) *Channel {
 			},
 		}
 
+		channel.GeneralSimpleOnlineUsersPool = &sync.Pool{
+			New: func() interface{} {
+				general_online_users_simple := new(lib.GeneralOnlineUsersSimple)
+				general_online_users_simple.UserTags = make(map[string]*lib.OnlineUsersSimpleWithTag)
+				return general_online_users_simple
+			},
+		}
+
+		channel.SimpleOnlineUsersTagPool = &sync.Pool{
+			New: func() interface{} {
+				return new(lib.OnlineUsersSimpleWithTag)
+			},
+		}
+
 		all_channel.Channels[channel_name] = channel
 		return channel
 	}
@@ -690,11 +704,11 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
 
 	var channel_name string
-	var general_online_users_simple lib.GeneralOnlineUsersSimple
+	//var general_online_users_simple lib.GeneralOnlineUsersSimple
 	var user_state_tag_map *lib.OnlineUsersSimpleWithTag
 	var ok bool
 
-	temp_tag_map := make(map[string]*lib.OnlineUsersSimpleWithTag, 10)
+	//temp_tag_map := make(map[string]*lib.OnlineUsersSimpleWithTag, 10)
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -706,11 +720,15 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	channel := GetChannel(channel_name)
 
 	channel.OnlineUsersLock.RLock()
+
+	general_online_users_simple := channel.GeneralSimpleOnlineUsersPool.Get().(*lib.GeneralOnlineUsersSimple)
+	temp_tag_map := general_online_users_simple.UserTags
+
 	for username := range channel.OnlineUsers {
 		state := channel.OnlineUsers[username]
 
 		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
-			user_state_tag_map = new(lib.OnlineUsersSimpleWithTag)
+			user_state_tag_map = channel.SimpleOnlineUsersTagPool.Get().(*lib.OnlineUsersSimpleWithTag)
 			temp_tag_map[state.Tag] = user_state_tag_map
 		}
 
@@ -732,6 +750,13 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 
 	ffjson.Pool(buf)
+
+	for idx := range general_online_users_simple.UserTags {
+		general_online_users_simple.UserTags[idx].Length = 0
+		channel.SimpleOnlineUsersTagPool.Put(general_online_users_simple.UserTags[idx])
+	}
+
+	channel.GeneralSimpleOnlineUsersPool.Put(general_online_users_simple)
 }
 
 func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
