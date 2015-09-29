@@ -15,4 +15,4 @@ if [ -n "$2" ]; then
     NUM_OF_CONCURRENT_REQUESTS="$2"
 fi
 
-ab -k -n $NUM_OF_REQUESTS -c $NUM_OF_CONCURRENT_REQUESTS -H "channel: $CHANNEL" -H "tourid: $TOURID" http://$SERVER:$PORT/api/poll
+ab -k -n $NUM_OF_REQUESTS -c $NUM_OF_CONCURRENT_REQUESTS -H "channel: $CHANNEL" -H "tourid: $TOURID" -H "tag: test" http://$SERVER:$PORT/api/poll

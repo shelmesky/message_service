@@ -97,8 +97,6 @@ type Channel struct {
 	GeneralSimpleOnlineUsersPool *sync.Pool
 	SimpleOnlineUsersTagPool     *sync.Pool
 
-	StringListPool *sync.Pool
-
 	ChannelRLock *sync.RWMutex
 
 	PrepareClose bool
@@ -1470,6 +1468,16 @@ func StartGlobalScavenger() chan bool {
 							close(user_state_chan)
 							user_state_chan = nil
 						}
+
+						channel.PostMessagePool = nil
+						channel.PostReplyPool = nil
+						channel.PollMessagePool = nil
+						channel.UserStatePool = nil
+
+						channel.GeneralOnlineUsersPool = nil
+						channel.OnlineUsersTagPool = nil
+						channel.GeneralSimpleOnlineUsersPool = nil
+						channel.SimpleOnlineUsersTagPool = nil
 
 						channel.Closed = true
 
