@@ -856,9 +856,6 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 		temp_tag_map[state.Tag].Length += 1
 		temp_tag_map[state.Tag].UserList = append(temp_tag_map[state.Tag].UserList, username)
-
-		utils.Log.Println("user_state_tag_map:", user_state_tag_map)
-		utils.Log.Println("temp_tag_map:", temp_tag_map)
 	}
 	channel.OnlineUsersLock.RUnlock()
 
