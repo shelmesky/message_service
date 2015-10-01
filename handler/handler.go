@@ -29,8 +29,12 @@ const (
 	MULTI_CAST_BUFFER_SIZE         = 1 << 10
 	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 10
 
-	DELAY_USER_ONLINE             = 120 // set user offline
-	DELAY_CLEAN_USER_RESOURCE     = 30  // clean user's resource
+	/* DELAY_USER_ONLINE must be less than or equal to DELAY_CLEAN_USER_RESOURCE,
+	becuase we should first set user's state,
+	second we clean user's resource,
+	at last we remove the channel itself */
+	DELAY_USER_ONLINE             = 90  // set user's state (online or offline)
+	DELAY_CLEAN_USER_RESOURCE     = 120 // clean user's resource
 	DELAY_CHANNEL_POST            = 150 // remove channel
 	PERIOD_CLEAN_CHANNEL_RESOURCE = 1
 
@@ -231,7 +235,7 @@ func AddChannel(channel_name string) *Channel {
 		channel.CloseChan = append(channel.CloseChan, close_chan)
 
 		// 维护在线用户列表
-		close_chan = StartUserStateCollector(channel)
+		close_chan = StartUserStateCollector(channel_name)
 		channel.CloseChan = append(channel.CloseChan, close_chan)
 
 		// 为每个Channel创建CHANNEL_SCAVENGER个清道夫
@@ -239,7 +243,7 @@ func AddChannel(channel_name string) *Channel {
 		for k := 0; k < CHANNEL_SCAVENGER; k++ {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
-			close_chan = StartChannelScavenger(channel, scavenger_chan, k, channel.UserStateChan)
+			close_chan = StartChannelScavenger(channel_name, scavenger_chan, k, channel.UserStateChan)
 			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
@@ -1294,7 +1298,7 @@ func CopyMessage(channel *Channel, post_message *lib.PostMessage) *lib.PostMessa
 }
 
 // 维护channel的在线用户列表
-func StartUserStateCollector(channel *Channel) chan bool {
+func StartUserStateCollector(channel_name string) chan bool {
 	close_chan := make(chan bool)
 	go func() {
 		defer func() {
@@ -1306,8 +1310,11 @@ func StartUserStateCollector(channel *Channel) chan bool {
 
 		var user_state *UserState
 		var ok bool
+		var channel *Channel
 
 		for {
+			channel = GetChannel(channel_name)
+
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] UserStateCollector has quit...\n", channel.Name)
@@ -1345,7 +1352,7 @@ func StartUserStateCollector(channel *Channel) chan bool {
 }
 
 // 定时清除用户和相关资源
-func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenger_idx int, user_state_chan chan *UserState) chan bool {
+func StartChannelScavenger(channel_name string, scavenger_chan chan *User, scavenger_idx int, user_state_chan chan *UserState) chan bool {
 	close_chan := make(chan bool)
 	go func() {
 		defer func() {
@@ -1358,10 +1365,13 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 		var user *User
 		var now int64
 		var state *UserState
+		var channel *Channel
 
 		user_list := make(map[string]*User, 1024)
 
 		for {
+			channel = GetChannel(channel_name)
+
 			select {
 			case <-close_chan:
 				utils.Log.Printf("Channel [%s] Scavenger [%d] has quit...\n", channel.Name, scavenger_idx)
@@ -1411,6 +1421,10 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 								state.State = false
 								state.From = 0
 								user_state_chan <- state
+
+								if ServerDebug {
+									utils.Log.Printf("scavenger: set [%s] offline\n", user.ID)
+								}
 							}
 							user.SpinLock.Unlock()
 						}
@@ -1426,6 +1440,10 @@ func StartChannelScavenger(channel *Channel, scavenger_chan chan *User, scavenge
 								state.State = true
 								state.From = 0
 								user_state_chan <- state
+
+								if ServerDebug {
+									utils.Log.Printf("scavenger: set [%s] online\n", user.ID)
+								}
 							}
 							user.SpinLock.Unlock()
 						}
