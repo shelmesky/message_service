@@ -1203,11 +1203,6 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 		var ok bool
 
 		user_list := make(map[string]*User, 1024)
-		post_message_temp_buffer := make([]*lib.PostMessage, 0)
-
-		// 如果当前Sender存在用户则保存到用户消息缓存
-		// 否则保存到当前Sender的消息缓存
-		// 等到接收到第一个用户时，发送给用户
 
 		channel := GetChannel(channel_name)
 
@@ -1221,25 +1216,6 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 			case user = <-user_channel:
 				user_list[user.ID] = user
 				utils.Log.Printf("Channel [%s] SenderStage2 [%d] got user: %s\n", channel_name, idx, user.ID)
-
-				// 发送本地缓存中的消息给用户
-				if len(post_message_temp_buffer) > 0 {
-					for key := range user_list {
-						if user, ok = user_list[key]; ok {
-							for idx := range post_message_temp_buffer {
-								new_post_message := CopyMessage(channel, post_message_temp_buffer[idx])
-								user.SpinLock.Lock()
-								user.MessageBuffer.PushBack(new_post_message)
-								user.SpinLock.Unlock()
-							}
-						}
-					}
-					for idx := range post_message_temp_buffer {
-						channel.PostMessagePool.Put(post_message_temp_buffer[idx])
-					}
-					post_message_temp_buffer = nil
-					post_message_temp_buffer = make([]*lib.PostMessage, 0)
-				}
 
 			case post_message = <-stage2_channel:
 				if len(user_list) > 0 {
@@ -1275,10 +1251,8 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 							user.SpinLock.Unlock()
 						}
 					}
+
 				} else {
-					// TODO: fix me: temp buffer cause GC heavily
-					new_post_message := CopyMessage(channel, post_message)
-					post_message_temp_buffer = append(post_message_temp_buffer, new_post_message)
 					channel.PostMessagePool.Put(post_message)
 				}
 			}
