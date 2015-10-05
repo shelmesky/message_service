@@ -4,8 +4,8 @@
     "profile_listen_address": "0.0.0.0:54570",
     "server_debug": false,
     "force_gc": true,
-    "force_gc_period": 5,
+    "force_gc_period": 60,
     "force_free_os_memory": false,
     "keepalive": true,
-    "poll_message_size": 50
+    "poll_message_size": 500
 }
