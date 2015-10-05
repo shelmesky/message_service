@@ -868,14 +868,21 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	channel.OnlineUsersLock.RLock()
 
-	general_online_users := channel.GeneralOnlineUsersPool.Get().(*lib.GeneralOnlineUsers)
+	//general_online_users := channel.GeneralOnlineUsersPool.Get().(*lib.GeneralOnlineUsers)
+	general_online_users := new(lib.GeneralOnlineUsers)
+	general_online_users.UserTags = make(map[string]*lib.OnlineUsersWithTag, 0)
 	temp_tag_map := general_online_users.UserTags
 
 	for username := range channel.OnlineUsers {
 		state := channel.OnlineUsers[username]
 
+		if ServerDebug {
+			utils.Log.Printf("/api/users/tags: go state: %v\n", state)
+		}
+
 		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
-			user_state_tag_map = channel.OnlineUsersTagPool.Get().(*lib.OnlineUsersWithTag)
+			//user_state_tag_map = channel.OnlineUsersTagPool.Get().(*lib.OnlineUsersWithTag)
+			user_state_tag_map = new(lib.OnlineUsersWithTag)
 			temp_tag_map[state.Tag] = user_state_tag_map
 		}
 
@@ -899,13 +906,15 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	ffjson.Pool(buf)
 
-	for idx := range general_online_users.UserTags {
-		general_online_users.UserTags[idx].UserList = make([]string, 0)
-		general_online_users.UserTags[idx].Length = 0
-		channel.OnlineUsersTagPool.Put(general_online_users.UserTags[idx])
-	}
+	/*
+		for idx := range general_online_users.UserTags {
+			general_online_users.UserTags[idx].UserList = make([]string, 0)
+			general_online_users.UserTags[idx].Length = 0
+			channel.OnlineUsersTagPool.Put(general_online_users.UserTags[idx])
+		}
 
-	channel.GeneralOnlineUsersPool.Put(general_online_users)
+		channel.GeneralOnlineUsersPool.Put(general_online_users)
+	*/
 }
 
 func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
@@ -1280,6 +1289,7 @@ func StartUserStateCollector(channel_name string) chan bool {
 			}
 		}()
 
+		var old_user_state *UserState
 		var user_state *UserState
 		var ok bool
 		var channel *Channel
@@ -1295,7 +1305,7 @@ func StartUserStateCollector(channel_name string) chan bool {
 
 			case user_state = <-channel.UserStateChan:
 				if ServerDebug == true {
-					utils.Log.Printf("Channel [%s] User change state: [%s: %v]\n", channel.Name, user_state.ID, user_state.State)
+					utils.Log.Printf("Channel [%s] User change state: [%s: %v] with Tag: %s\n", channel.Name, user_state.ID, user_state.State, user_state.Tag)
 				}
 
 				// 只有State为0时，才更新channel的在线用户数
@@ -1307,12 +1317,13 @@ func StartUserStateCollector(channel_name string) chan bool {
 						atomic.AddUint64(&channel.RealUserCount, 1)
 					}
 				} else {
-					if user_state, ok = channel.OnlineUsers[user_state.ID]; ok {
+					if old_user_state, ok = channel.OnlineUsers[user_state.ID]; ok {
 						if user_state.From == 0 {
 							delete(channel.OnlineUsers, user_state.ID)
 							atomic.AddUint64(&channel.RealUserCount, ^uint64(0))
+							channel.UserStatePool.Put(user_state)
+							channel.UserStatePool.Put(old_user_state)
 						}
-						channel.UserStatePool.Put(user_state)
 					}
 				}
 				channel.OnlineUsersLock.Unlock()
