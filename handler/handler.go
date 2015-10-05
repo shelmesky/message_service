@@ -108,8 +108,6 @@ type Channel struct {
 	CloseChan    []chan bool
 
 	LastPostUpdate int64
-
-	//SingleCastChan chan *PostMessage
 }
 
 type User struct {
