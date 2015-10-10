@@ -822,6 +822,8 @@ func (mj *GeneralOnlineUsers) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	_ = err
 	buf.WriteString(`{"result":`)
 	fflib.FormatBits2(buf, uint64(mj.Result), 10, mj.Result < 0)
+	buf.WriteString(`,"timestamp":`)
+	fflib.FormatBits2(buf, uint64(mj.Timestamp), 10, mj.Timestamp < 0)
 	buf.WriteString(`,"user_tags":`)
 	/* Falling back. type=map[string]*lib.OnlineUsersWithTag kind=map */
 	err = buf.Encode(mj.UserTags)
@@ -838,10 +840,14 @@ const (
 
 	ffj_t_GeneralOnlineUsers_Result
 
+	ffj_t_GeneralOnlineUsers_Timestamp
+
 	ffj_t_GeneralOnlineUsers_UserTags
 )
 
 var ffj_key_GeneralOnlineUsers_Result = []byte("result")
+
+var ffj_key_GeneralOnlineUsers_Timestamp = []byte("timestamp")
 
 var ffj_key_GeneralOnlineUsers_UserTags = []byte("user_tags")
 
@@ -912,6 +918,14 @@ mainparse:
 						goto mainparse
 					}
 
+				case 't':
+
+					if bytes.Equal(ffj_key_GeneralOnlineUsers_Timestamp, kn) {
+						currentKey = ffj_t_GeneralOnlineUsers_Timestamp
+						state = fflib.FFParse_want_colon
+						goto mainparse
+					}
+
 				case 'u':
 
 					if bytes.Equal(ffj_key_GeneralOnlineUsers_UserTags, kn) {
@@ -924,6 +938,12 @@ mainparse:
 
 				if fflib.EqualFoldRight(ffj_key_GeneralOnlineUsers_UserTags, kn) {
 					currentKey = ffj_t_GeneralOnlineUsers_UserTags
+					state = fflib.FFParse_want_colon
+					goto mainparse
+				}
+
+				if fflib.EqualFoldRight(ffj_key_GeneralOnlineUsers_Timestamp, kn) {
+					currentKey = ffj_t_GeneralOnlineUsers_Timestamp
 					state = fflib.FFParse_want_colon
 					goto mainparse
 				}
@@ -953,6 +973,9 @@ mainparse:
 
 				case ffj_t_GeneralOnlineUsers_Result:
 					goto handle_Result
+
+				case ffj_t_GeneralOnlineUsers_Timestamp:
+					goto handle_Timestamp
 
 				case ffj_t_GeneralOnlineUsers_UserTags:
 					goto handle_UserTags
@@ -994,6 +1017,36 @@ handle_Result:
 			}
 
 			uj.Result = int(tval)
+
+		}
+	}
+
+	state = fflib.FFParse_after_value
+	goto mainparse
+
+handle_Timestamp:
+
+	/* handler: uj.Timestamp type=int64 kind=int64 quoted=false*/
+
+	{
+		if tok != fflib.FFTok_integer && tok != fflib.FFTok_null {
+			return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for int64", tok))
+		}
+	}
+
+	{
+
+		if tok == fflib.FFTok_null {
+
+		} else {
+
+			tval, err := fflib.ParseInt(fs.Output.Bytes(), 10, 64)
+
+			if err != nil {
+				return fs.WrapErr(err)
+			}
+
+			uj.Timestamp = int64(tval)
 
 		}
 	}
@@ -1147,6 +1200,8 @@ func (mj *GeneralOnlineUsersSimple) MarshalJSONBuf(buf fflib.EncodingBuffer) err
 	_ = err
 	buf.WriteString(`{"result":`)
 	fflib.FormatBits2(buf, uint64(mj.Result), 10, mj.Result < 0)
+	buf.WriteString(`,"timestamp":`)
+	fflib.FormatBits2(buf, uint64(mj.Timestamp), 10, mj.Timestamp < 0)
 	buf.WriteString(`,"user_tags":`)
 	/* Falling back. type=map[string]*lib.OnlineUsersSimpleWithTag kind=map */
 	err = buf.Encode(mj.UserTags)
@@ -1163,10 +1218,14 @@ const (
 
 	ffj_t_GeneralOnlineUsersSimple_Result
 
+	ffj_t_GeneralOnlineUsersSimple_Timestamp
+
 	ffj_t_GeneralOnlineUsersSimple_UserTags
 )
 
 var ffj_key_GeneralOnlineUsersSimple_Result = []byte("result")
+
+var ffj_key_GeneralOnlineUsersSimple_Timestamp = []byte("timestamp")
 
 var ffj_key_GeneralOnlineUsersSimple_UserTags = []byte("user_tags")
 
@@ -1237,6 +1296,14 @@ mainparse:
 						goto mainparse
 					}
 
+				case 't':
+
+					if bytes.Equal(ffj_key_GeneralOnlineUsersSimple_Timestamp, kn) {
+						currentKey = ffj_t_GeneralOnlineUsersSimple_Timestamp
+						state = fflib.FFParse_want_colon
+						goto mainparse
+					}
+
 				case 'u':
 
 					if bytes.Equal(ffj_key_GeneralOnlineUsersSimple_UserTags, kn) {
@@ -1249,6 +1316,12 @@ mainparse:
 
 				if fflib.EqualFoldRight(ffj_key_GeneralOnlineUsersSimple_UserTags, kn) {
 					currentKey = ffj_t_GeneralOnlineUsersSimple_UserTags
+					state = fflib.FFParse_want_colon
+					goto mainparse
+				}
+
+				if fflib.EqualFoldRight(ffj_key_GeneralOnlineUsersSimple_Timestamp, kn) {
+					currentKey = ffj_t_GeneralOnlineUsersSimple_Timestamp
 					state = fflib.FFParse_want_colon
 					goto mainparse
 				}
@@ -1278,6 +1351,9 @@ mainparse:
 
 				case ffj_t_GeneralOnlineUsersSimple_Result:
 					goto handle_Result
+
+				case ffj_t_GeneralOnlineUsersSimple_Timestamp:
+					goto handle_Timestamp
 
 				case ffj_t_GeneralOnlineUsersSimple_UserTags:
 					goto handle_UserTags
@@ -1319,6 +1395,36 @@ handle_Result:
 			}
 
 			uj.Result = int(tval)
+
+		}
+	}
+
+	state = fflib.FFParse_after_value
+	goto mainparse
+
+handle_Timestamp:
+
+	/* handler: uj.Timestamp type=int64 kind=int64 quoted=false*/
+
+	{
+		if tok != fflib.FFTok_integer && tok != fflib.FFTok_null {
+			return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for int64", tok))
+		}
+	}
+
+	{
+
+		if tok == fflib.FFTok_null {
+
+		} else {
+
+			tval, err := fflib.ParseInt(fs.Output.Bytes(), 10, 64)
+
+			if err != nil {
+				return fs.WrapErr(err)
+			}
+
+			uj.Timestamp = int64(tval)
 
 		}
 	}

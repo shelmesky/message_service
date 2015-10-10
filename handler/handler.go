@@ -740,6 +740,7 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	general_online_users_simple.Result = 0
 	general_online_users_simple.UserTags = temp_tag_map
+	general_online_users_simple.Timestamp = time.Now().Unix()
 
 	buf, err := ffjson.Marshal(general_online_users_simple)
 	if err != nil {
@@ -891,6 +892,7 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	general_online_users.Result = 0
 	general_online_users.UserTags = temp_tag_map
+	general_online_users.Timestamp = time.Now().Unix()
 
 	buf, err := ffjson.Marshal(general_online_users)
 	if err != nil {

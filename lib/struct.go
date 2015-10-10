@@ -23,8 +23,9 @@ type DeleteMessageReply struct {
 }
 
 type GeneralOnlineUsers struct {
-	Result   int                            `json:"result"`
-	UserTags map[string]*OnlineUsersWithTag `json:"user_tags"`
+	Result    int                            `json:"result"`
+	Timestamp int64                          `json:"timestamp"`
+	UserTags  map[string]*OnlineUsersWithTag `json:"user_tags"`
 }
 
 type OnlineUsersWithTag struct {
@@ -39,8 +40,9 @@ type OnlineUsers struct {
 }
 
 type GeneralOnlineUsersSimple struct {
-	Result   int                                  `json:"result"`
-	UserTags map[string]*OnlineUsersSimpleWithTag `json:"user_tags"`
+	Result    int                                  `json:"result"`
+	Timestamp int64                                `json:"timestamp"`
+	UserTags  map[string]*OnlineUsersSimpleWithTag `json:"user_tags"`
 }
 
 type OnlineUsersSimpleWithTag struct {
