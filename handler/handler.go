@@ -1020,6 +1020,10 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		utils.Log.Printf("[%s] user_tag not in header\n", req.RemoteAddr)
 	}
 
+	if ServerDebug {
+		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]", req.RemoteAddr, user_id, user_tag)
+	}
+
 	channel := GetChannel(channel_name)
 
 	if channel.PrepareClose == true {
