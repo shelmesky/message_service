@@ -576,7 +576,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 	channel_name = req.Header.Get("channel")
@@ -659,7 +659,7 @@ func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	var online_users_simple lib.OnlineUsersSimple
 	var channel_name string
@@ -703,7 +703,7 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	var channel_name string
 	//var general_online_users_simple lib.GeneralOnlineUsersSimple
@@ -779,7 +779,7 @@ func OnlineUsersHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	channel_name = req.Header.Get("channel")
 	channel_name = strings.Trim(channel_name, " ")
@@ -853,7 +853,7 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	var channel_name string
 	var user_state_tag_map *lib.OnlineUsersWithTag
@@ -931,7 +931,7 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -1028,7 +1028,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
