@@ -710,7 +710,7 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	var user_state_tag_map *lib.OnlineUsersSimpleWithTag
 	var ok bool
 
-	//temp_tag_map := make(map[string]*lib.OnlineUsersSimpleWithTag, 10)
+	//temp_tag_map := make(map[string]*lib.OnlineUsersSimpleWithTag, 8)
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -753,9 +753,10 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	ffjson.Pool(buf)
 
-	for idx := range general_online_users_simple.UserTags {
-		general_online_users_simple.UserTags[idx].Length = 0
-		channel.SimpleOnlineUsersTagPool.Put(general_online_users_simple.UserTags[idx])
+	for key := range general_online_users_simple.UserTags {
+		general_online_users_simple.UserTags[key].Length = 0
+		channel.SimpleOnlineUsersTagPool.Put(general_online_users_simple.UserTags[key])
+		delete(general_online_users_simple.UserTags, key)
 	}
 
 	channel.GeneralSimpleOnlineUsersPool.Put(general_online_users_simple)
@@ -868,21 +869,18 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	channel.OnlineUsersLock.RLock()
 
-	//general_online_users := channel.GeneralOnlineUsersPool.Get().(*lib.GeneralOnlineUsers)
-	general_online_users := new(lib.GeneralOnlineUsers)
-	general_online_users.UserTags = make(map[string]*lib.OnlineUsersWithTag, 0)
+	general_online_users := channel.GeneralOnlineUsersPool.Get().(*lib.GeneralOnlineUsers)
 	temp_tag_map := general_online_users.UserTags
 
 	for username := range channel.OnlineUsers {
 		state := channel.OnlineUsers[username]
 
 		if ServerDebug {
-			utils.Log.Printf("/api/users/tags: go state: %v\n", state)
+			utils.Log.Printf("/api/users/tags: got state: %v\n", state)
 		}
 
 		if user_state_tag_map, ok = temp_tag_map[state.Tag]; !ok {
-			//user_state_tag_map = channel.OnlineUsersTagPool.Get().(*lib.OnlineUsersWithTag)
-			user_state_tag_map = new(lib.OnlineUsersWithTag)
+			user_state_tag_map = channel.OnlineUsersTagPool.Get().(*lib.OnlineUsersWithTag)
 			temp_tag_map[state.Tag] = user_state_tag_map
 		}
 
@@ -906,15 +904,15 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 
 	ffjson.Pool(buf)
 
-	/*
-		for idx := range general_online_users.UserTags {
-			general_online_users.UserTags[idx].UserList = make([]string, 0)
-			general_online_users.UserTags[idx].Length = 0
-			channel.OnlineUsersTagPool.Put(general_online_users.UserTags[idx])
-		}
+	for key := range general_online_users.UserTags {
+		general_online_users.UserTags[key].Length = 0
+		general_online_users.UserTags[key].UserList = make([]string, 0)
+		channel.OnlineUsersTagPool.Put(general_online_users.UserTags[key])
+		// delete is safe, because its just only delete
+		delete(general_online_users.UserTags, key)
+	}
 
-		channel.GeneralOnlineUsersPool.Put(general_online_users)
-	*/
+	channel.GeneralOnlineUsersPool.Put(general_online_users)
 }
 
 func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
