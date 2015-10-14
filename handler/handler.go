@@ -1055,7 +1055,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if ServerDebug {
-		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]", req.RemoteAddr, user_id, user_tag)
+		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]\n", req.RemoteAddr, user_id, user_tag)
 	}
 
 	channel := GetChannel(channel_name)
