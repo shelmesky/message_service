@@ -757,6 +757,8 @@ func OnlineUsersSimpleHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 	for key := range general_online_users_simple.UserTags {
 		general_online_users_simple.UserTags[key].Length = 0
 		channel.SimpleOnlineUsersTagPool.Put(general_online_users_simple.UserTags[key])
+		// delete is safe
+		// because we put general_online_users into pool in the below
 		delete(general_online_users_simple.UserTags, key)
 	}
 
@@ -910,7 +912,8 @@ func OnlineUsersHandlerWithTag(w http.ResponseWriter, req *http.Request) {
 		general_online_users.UserTags[key].Length = 0
 		general_online_users.UserTags[key].UserList = make([]string, 0)
 		channel.OnlineUsersTagPool.Put(general_online_users.UserTags[key])
-		// delete is safe, because its just only delete
+		// delete is safe
+		// because we put general_online_users into pool in the below
 		delete(general_online_users.UserTags, key)
 	}
 
