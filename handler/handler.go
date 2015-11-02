@@ -954,11 +954,11 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 	user_tag = strings.Trim(user_tag, " ")
 	if user_tag == "" {
 		user_tag = "UNKNOW"
-		utils.Log.Printf("[%s] user_tag not in header\n", req.RemoteAddr)
+		utils.Log.Printf("[%s] user: [%s] user_tag not in header\n", req.RemoteAddr, user_id)
 	}
 
 	if ServerDebug {
-		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]", req.RemoteAddr, user_id, user_tag)
+		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]\n", req.RemoteAddr, user_id, user_tag)
 	}
 
 	channel := GetChannel(channel_name)
@@ -978,7 +978,7 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 
 	// update user's tag when tag was changed
 	if CHANGE_USER_STATE_IN_REAL_TIME && user_tag != "" {
-		if user_tag != user.Tag && user.Tag != "" {
+		if user_tag != user.Tag || user.Tag == "" {
 			if ServerDebug {
 				utils.Log.Printf("Change user [%s] tag %s->%s\n", user_id, user.Tag, user_tag)
 			}
@@ -1094,7 +1094,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	// update user's tag when tag was changed
 	if CHANGE_USER_STATE_IN_REAL_TIME && user_tag != "" {
-		if user_tag != user.Tag && user.Tag != "" {
+		if user_tag != user.Tag || user.Tag == "" {
 			if ServerDebug {
 				utils.Log.Printf("Change user [%s] tag %s->%s\n", user_id, user.Tag, user_tag)
 			}
