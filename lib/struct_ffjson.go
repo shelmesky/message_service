@@ -3036,6 +3036,8 @@ func (mj *PostMessage) MarshalJSONBuf(buf fflib.EncodingBuffer) error {
 	fflib.WriteJsonString(buf, string(mj.MessageID))
 	buf.WriteString(`,"to_user":`)
 	fflib.WriteJsonString(buf, string(mj.ToUser))
+	buf.WriteString(`,"delay":`)
+	fflib.FormatBits2(buf, uint64(mj.Delay), 10, mj.Delay < 0)
 	buf.WriteString(`,"payload":`)
 	fflib.WriteJsonString(buf, string(mj.PayLoad))
 	buf.WriteByte('}')
@@ -3052,6 +3054,8 @@ const (
 
 	ffj_t_PostMessage_ToUser
 
+	ffj_t_PostMessage_Delay
+
 	ffj_t_PostMessage_PayLoad
 )
 
@@ -3060,6 +3064,8 @@ var ffj_key_PostMessage_MessageType = []byte("type")
 var ffj_key_PostMessage_MessageID = []byte("id")
 
 var ffj_key_PostMessage_ToUser = []byte("to_user")
+
+var ffj_key_PostMessage_Delay = []byte("delay")
 
 var ffj_key_PostMessage_PayLoad = []byte("payload")
 
@@ -3122,6 +3128,14 @@ mainparse:
 			} else {
 				switch kn[0] {
 
+				case 'd':
+
+					if bytes.Equal(ffj_key_PostMessage_Delay, kn) {
+						currentKey = ffj_t_PostMessage_Delay
+						state = fflib.FFParse_want_colon
+						goto mainparse
+					}
+
 				case 'i':
 
 					if bytes.Equal(ffj_key_PostMessage_MessageID, kn) {
@@ -3155,6 +3169,12 @@ mainparse:
 
 				if fflib.SimpleLetterEqualFold(ffj_key_PostMessage_PayLoad, kn) {
 					currentKey = ffj_t_PostMessage_PayLoad
+					state = fflib.FFParse_want_colon
+					goto mainparse
+				}
+
+				if fflib.SimpleLetterEqualFold(ffj_key_PostMessage_Delay, kn) {
+					currentKey = ffj_t_PostMessage_Delay
 					state = fflib.FFParse_want_colon
 					goto mainparse
 				}
@@ -3202,6 +3222,9 @@ mainparse:
 
 				case ffj_t_PostMessage_ToUser:
 					goto handle_ToUser
+
+				case ffj_t_PostMessage_Delay:
+					goto handle_Delay
 
 				case ffj_t_PostMessage_PayLoad:
 					goto handle_PayLoad
@@ -3291,6 +3314,36 @@ handle_ToUser:
 			outBuf := fs.Output.Bytes()
 
 			uj.ToUser = string(string(outBuf))
+
+		}
+	}
+
+	state = fflib.FFParse_after_value
+	goto mainparse
+
+handle_Delay:
+
+	/* handler: uj.Delay type=int kind=int quoted=false*/
+
+	{
+		if tok != fflib.FFTok_integer && tok != fflib.FFTok_null {
+			return fs.WrapErr(fmt.Errorf("cannot unmarshal %s into Go value for int", tok))
+		}
+	}
+
+	{
+
+		if tok == fflib.FFTok_null {
+
+		} else {
+
+			tval, err := fflib.ParseInt(fs.Output.Bytes(), 10, 64)
+
+			if err != nil {
+				return fs.WrapErr(err)
+			}
+
+			uj.Delay = int(tval)
 
 		}
 	}

@@ -54,7 +54,7 @@ var (
 	byte_pool = bytepool.New(4096, 8192)
 
 	// timingwheel
-	wheel_seconds      = utils.NewTimingWheel(1*time.Second, 10)
+	wheel_seconds      = utils.NewTimingWheel(1*time.Second, 60)
 	wheel_milliseconds = utils.NewTimingWheel(10*time.Millisecond, 2)
 
 	ServerDebug bool
@@ -560,6 +560,27 @@ func ChannelAddHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 }
 
+// 发送消息
+func PostMessage(channel *Channel, post_message *lib.PostMessage) bool {
+	send_finished := false
+
+	// need delay push
+	if post_message.Delay > 0 && post_message.Delay <= 60 {
+		<-wheel_seconds.After(time.Duration(post_message.Delay) * time.Second)
+	}
+
+	// send message to buffered channel
+	select {
+	case channel.MultiCastStage0Chan <- post_message:
+		send_finished = true
+	case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
+		utils.Log.Println("message buffer of stage0 channel is full, channel:", channel.Name)
+		send_finished = false
+	}
+
+	return send_finished
+}
+
 // 处理POST消息
 func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	defer func() {
@@ -613,13 +634,11 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 	post_message.MessageID = message_id
 
 	send_finished := false
-	// send message to buffered channel
-	select {
-	case channel.MultiCastStage0Chan <- post_message:
+	if post_message.Delay == 0 {
+		send_finished = PostMessage(channel, post_message)
+	} else {
+		go PostMessage(channel, post_message)
 		send_finished = true
-	case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
-		utils.Log.Println("message buffer of stage0 channel is full, channel:", channel_name)
-		send_finished = false
 	}
 
 	post_reply := channel.PostReplyPool.Get().(*lib.PostReply)

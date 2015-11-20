@@ -10,6 +10,7 @@ type PostMessage struct {
 	MessageType string `json:"type"`
 	MessageID   string `json:"id"`
 	ToUser      string `json:"to_user"`
+	Delay       int    `json:"delay"`
 	PayLoad     string `json:"payload"`
 }
 
