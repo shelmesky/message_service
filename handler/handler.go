@@ -352,7 +352,7 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 		this.ScavengerChan[hash_key] <- user
 		this.UserChan[hash_key] <- user
 		users_lock.Unlock()
-		user.NotifyChan = make(chan bool, 2)
+		user.NotifyChan = make(chan bool, 1)
 		return user, nil
 	}
 
