@@ -232,11 +232,17 @@ func main() {
 
 	router := mux.NewRouter()
 
+	/*
+		ReadTimeout和WriteTimeout
+		必须大于长轮询等待的时间
+		并且在rever proxy中要配置read timeout
+		read timeout要超过长轮询等待的时间
+	*/
 	s := &http.Server{
 		Addr:           Config.ListenAddress,
 		Handler:        router,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
+		ReadTimeout:    60 * time.Second,
+		WriteTimeout:   60 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 

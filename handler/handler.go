@@ -333,7 +333,7 @@ func (this *Channel) GetUser(user_id string) (*User, error) {
 	return user, fmt.Errorf("can not find user [%s : %s]", this.Name, user_id)
 }
 
-func (this *Channel) AddUser(user_id string) (*User, error) {
+func (this *Channel) AddUser(user_id, user_tag string) (*User, error) {
 	var user *User
 	var ok bool
 
@@ -348,6 +348,7 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 		this.Users[user_id] = user
 		// 保存用户的SenderKey
 		user.SenderKey = hash_key
+		user.Tag = user_tag
 		// 发送用户到清道夫和Stage2 Sender
 		this.ScavengerChan[hash_key] <- user
 		this.UserChan[hash_key] <- user
@@ -990,7 +991,7 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 
 	user, err := channel.GetUser(user_id)
 	if err != nil {
-		user, err = channel.AddUser(user_id)
+		user, err = channel.AddUser(user_id, user_tag)
 		if err != nil {
 			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
 		}
@@ -1095,7 +1096,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	user, err := channel.GetUser(user_id)
 	if err != nil {
-		user, err = channel.AddUser(user_id)
+		user, err = channel.AddUser(user_id, user_tag)
 		if err != nil {
 			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
 		}
