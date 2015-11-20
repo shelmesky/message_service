@@ -1101,7 +1101,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// wait for message from post
+	// if no new message, we wait for it
 	if user.NotifyChan != nil {
 		select {
 		case <-wheel_seconds.After(time.Duration(POLL_WAIT_TIME) * time.Second):
@@ -1318,7 +1318,14 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 								new_post_message := CopyMessage(channel, post_message)
 								user.SpinLock.Lock()
 								user.MessageBuffer.PushBack(new_post_message)
-								user.NotifyChan <- true
+								// when there is some stuff in notify chan
+								// we ignore the notify
+								if len(user.NotifyChan) == 0 {
+									select {
+									case user.NotifyChan <- true:
+									case <-wheel_milliseconds.After(10 * time.Millisecond):
+									}
+								}
 								user.SpinLock.Unlock()
 							}
 						}
