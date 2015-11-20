@@ -42,6 +42,8 @@ const (
 
 	CHANGE_USER_STATE_IN_REAL_TIME = true
 
+	POLL_WAIT_TIME = 5
+
 	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
 	//CHANNEL_LOCKS				= 8
 	//CHANNEL_SCAVENGER			= 8
@@ -119,6 +121,7 @@ type User struct {
 	Online        bool
 	SenderKey     uint32
 	Tag           string
+	NotifyChan    chan bool
 }
 
 type AddChannelReply struct {
@@ -349,6 +352,7 @@ func (this *Channel) AddUser(user_id string) (*User, error) {
 		this.ScavengerChan[hash_key] <- user
 		this.UserChan[hash_key] <- user
 		users_lock.Unlock()
+		user.NotifyChan = make(chan bool, 2)
 		return user, nil
 	}
 
@@ -364,6 +368,8 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	if user, ok := this.Users[user_id]; ok {
 		user.MessageBuffer.Init()
 		user.MessageBuffer = nil
+		close(user.NotifyChan)
+		user.NotifyChan = nil
 		delete(this.Users, user_id)
 		users_lock.Unlock()
 		return true, nil
@@ -1045,6 +1051,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	var channel_name string
 	var user_id string
+	var err error
 
 	var message_list []*lib.PostMessage
 
@@ -1060,6 +1067,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	user_id = req.Header.Get("tourid")
+	user_id = strings.Trim(user_id, " ")
 	if user_id == "" {
 		utils.Log.Printf("[%s] user_id not in header\n", req.RemoteAddr)
 		http.Error(w, "user_id name not in header", 400)
@@ -1090,6 +1098,14 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		user, err = channel.AddUser(user_id)
 		if err != nil {
 			utils.Log.Printf("[%s] AddUser failed: [%s]\n", req.RemoteAddr, err)
+		}
+	}
+
+	// wait for message from post
+	if user.NotifyChan != nil {
+		select {
+		case <-wheel_seconds.After(time.Duration(POLL_WAIT_TIME) * time.Second):
+		case <-user.NotifyChan:
 		}
 	}
 
@@ -1302,6 +1318,7 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 								new_post_message := CopyMessage(channel, post_message)
 								user.SpinLock.Lock()
 								user.MessageBuffer.PushBack(new_post_message)
+								user.NotifyChan <- true
 								user.SpinLock.Unlock()
 							}
 						}
