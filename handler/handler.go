@@ -1086,6 +1086,9 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		utils.Log.Printf("Client [%s]: User [%s] with tag [%s]\n", req.RemoteAddr, user_id, user_tag)
 	}
 
+	wait := req.Header.Get("wait")
+	wait = strings.Trim(wait, " ")
+
 	channel := GetChannel(channel_name)
 
 	if channel.PrepareClose == true {
@@ -1103,10 +1106,12 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// if no new message, we wait for it
-	if user.NotifyChan != nil {
-		select {
-		case <-wheel_seconds.After(time.Duration(POLL_WAIT_TIME) * time.Second):
-		case <-user.NotifyChan:
+	if wait == "yes" {
+		if user.NotifyChan != nil {
+			select {
+			case <-wheel_seconds.After(time.Duration(POLL_WAIT_TIME) * time.Second):
+			case <-user.NotifyChan:
+			}
 		}
 	}
 
