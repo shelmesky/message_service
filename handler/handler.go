@@ -1075,6 +1075,9 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// support for multipoint login
+	user_id = user_id + ":" + utils.MakeRandomID()
+
 	user_tag := req.Header.Get("tag")
 	user_tag = strings.Trim(user_tag, " ")
 	if user_tag == "" {
