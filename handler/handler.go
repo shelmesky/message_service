@@ -42,7 +42,7 @@ const (
 
 	CHANGE_USER_STATE_IN_REAL_TIME = true
 
-	POLL_WAIT_TIME = 5
+	POLL_WAIT_TIME = 120
 
 	//MULTI_CAST_BUFFER_SIZE	= 1 << 19
 	//CHANNEL_LOCKS				= 8
@@ -56,7 +56,7 @@ var (
 	byte_pool = bytepool.New(4096, 8192)
 
 	// timingwheel
-	wheel_seconds      = utils.NewTimingWheel(1*time.Second, 60)
+	wheel_seconds      = utils.NewTimingWheel(1*time.Second, 600)
 	wheel_milliseconds = utils.NewTimingWheel(10*time.Millisecond, 2)
 
 	ServerDebug bool
