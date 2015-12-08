@@ -33,9 +33,9 @@ const (
 	becuase we should first set user's state,
 	second we clean user's resource,
 	at last we remove the channel itself */
-	DELAY_USER_ONLINE             = 90  // set user's state (online or offline)
-	DELAY_CLEAN_USER_RESOURCE     = 120 // clean user's resource
-	DELAY_CHANNEL_POST            = 150 // remove channel
+	DELAY_USER_ONLINE             = 20 // set user's state (online or offline)
+	DELAY_CLEAN_USER_RESOURCE     = 30 // clean user's resource
+	DELAY_CHANNEL_POST            = 45 // remove channel
 	PERIOD_CLEAN_CHANNEL_RESOURCE = 1
 
 	USE_FASE_ONLINE_MAP = true
