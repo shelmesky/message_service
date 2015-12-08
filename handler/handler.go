@@ -1482,7 +1482,7 @@ func StartChannelScavenger(channel_name string, scavenger_chan chan *User, scave
 							channel.DeleteUser(user.ID)
 							delete(user_list, user.ID)
 							atomic.AddUint64(&channel.UserCount, ^uint64(0))
-							utils.Log.Printf("Scavenger [%d] clean user: %s\n", scavenger_idx, user.ID)
+							utils.Log.Printf("Channel [%s] Scavenger [%d] clean user: %s\n", channel_name, scavenger_idx, user.ID)
 						}
 
 						// generate online user list
