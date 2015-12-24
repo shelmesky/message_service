@@ -14,6 +14,8 @@ type GlobalConfig struct {
 	ForceFreeOSMemory    bool   `json:"force_free_os_memory"`
 	KeepAlive            bool   `json:"keepalive"`
 	PollMessageSize      int    `json:"poll_message_size"`
+	MQTTServerAddress    string `json:"mqtt_server"`
+	MQTTServerEnable     bool   `json:"mqtt_server_enable"`
 	EnableServerProfile  bool
 	LogToStdout          bool
 	Lock                 *sync.Mutex

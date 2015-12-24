@@ -36,6 +36,8 @@ var (
 	ForceFreeOSMemory    = flag.Bool("force_free_os_memory", false, "Run debug.FreeOSMemory in force")
 	KeepAlive            = flag.Bool("keepalive", true, "Enable HTTP Keepalive, default: true")
 	PollMessageSize      = flag.Int("poll_message_size", 50, "Size of the poll's message size")
+	MQTTServerAddress    = flag.String("mqtt_server", "", "MQTT server address")
+	MQTTServerEnable     = flag.Bool("mqtt_server_enable", false, "enable or disable forward message to MQTT server")
 
 	Config lib.GlobalConfig
 )
@@ -108,6 +110,8 @@ func ExtraInit() {
 
 		Config.KeepAlive = *KeepAlive
 		Config.PollMessageSize = *PollMessageSize
+		Config.MQTTServerAddress = *MQTTServerAddress
+		Config.MQTTServerEnable = *MQTTServerEnable
 
 	} else {
 		data, err := ioutil.ReadFile(*ConfigFile)
@@ -151,6 +155,14 @@ func ExtraInit() {
 
 		if *PollMessageSize > 0 {
 			Config.PollMessageSize = *PollMessageSize
+		}
+
+		if *MQTTServerAddress != "" {
+			Config.MQTTServerAddress = *MQTTServerAddress
+		}
+
+		if *MQTTServerEnable != false {
+			Config.MQTTServerEnable = *MQTTServerEnable
 		}
 	}
 }

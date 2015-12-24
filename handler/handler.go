@@ -29,6 +29,8 @@ const (
 	MULTI_CAST_BUFFER_SIZE         = 1 << 10
 	MULTI_CAST_STAGE_0_BUFFER_SIZE = 1 << 10
 
+	MQTT_BUFFER_SIZE = 1 << 10
+
 	/* DELAY_USER_ONLINE must be less than or equal to DELAY_CLEAN_USER_RESOURCE,
 	becuase we should first set user's state,
 	second we clean user's resource,
@@ -92,6 +94,7 @@ type Channel struct {
 	MultiCastStage1Chan chan *lib.PostMessage
 	MultiCastStage2Chan []chan *lib.PostMessage
 	UserStateChan       chan *UserState
+	MQTTMessageChan     chan *lib.PostMessage
 
 	PostMessagePool *sync.Pool
 	PostReplyPool   *sync.Pool
@@ -245,6 +248,13 @@ func AddChannel(channel_name string) *Channel {
 			scavenger_chan := make(chan *User, 1024)
 			channel.ScavengerChan = append(channel.ScavengerChan, scavenger_chan)
 			close_chan = StartChannelScavenger(channel_name, scavenger_chan, k, channel.UserStateChan)
+			channel.CloseChan = append(channel.CloseChan, close_chan)
+		}
+
+		if Config.MQTTServerEnable == true {
+			// 转发消息到MQTT服务器
+			channel.MQTTMessageChan = make(chan *lib.PostMessage, MQTT_BUFFER_SIZE)
+			close_chan = StartMQTTSender(Config.MQTTServerAddress, channel.MQTTMessageChan, channel_name)
 			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
@@ -1198,6 +1208,7 @@ func StartChannelSenderStage0(channel_name string, stage0_channel, stage1_channe
 		}()
 
 		var post_message *lib.PostMessage
+		var new_post_message *lib.PostMessage
 
 		channel := GetChannel(channel_name)
 
@@ -1211,6 +1222,12 @@ func StartChannelSenderStage0(channel_name string, stage0_channel, stage1_channe
 			case post_message = <-stage0_channel:
 				stage1_channel <- post_message
 				channel.LastPostUpdate = time.Now().Unix()
+
+				if channel.MQTTMessageChan != nil {
+					new_post_message = CopyMessage(channel, post_message)
+					channel.MQTTMessageChan <- new_post_message
+				}
+
 				if ServerDebug {
 					utils.Log.Println("ChannelSenderStage0: send post_message to stage1_channel", post_message)
 				}
@@ -1559,6 +1576,7 @@ func StartGlobalScavenger() chan bool {
 						utils.Log.Printf("Channel [%s] will be removed.\n", channel_name)
 
 						// 等待Channel相关的goroutine退出
+						utils.Log.Println("Wait goroutines to exit")
 						for idx := range channel.CloseChan {
 							close_chan := channel.CloseChan[idx]
 							close_chan <- true
@@ -1567,6 +1585,7 @@ func StartGlobalScavenger() chan bool {
 							close_chan = nil
 						}
 
+						utils.Log.Println("Close all channel")
 						// 关闭相关channel
 						close(channel.MultiCastStage0Chan)
 						close(channel.MultiCastStage1Chan)
