@@ -397,7 +397,7 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 func GlobalOptionsHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag, token, versionCode, appId")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
@@ -970,7 +970,7 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag, token, versionCode, appId")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
@@ -1068,7 +1068,7 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag")
+	w.Header().Set("Access-Control-Allow-Headers", "channel, tourid, tag, token, versionCode, appId")
 
 	channel_name = req.Header.Get("channel")
 	if channel_name == "" {
