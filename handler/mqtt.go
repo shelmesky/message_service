@@ -89,6 +89,11 @@ func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessag
 
 				if err != nil {
 					utils.Log.Println("Publish to MQTT Failed:", err)
+					utils.Log.Println("Try to connect MQTT Server.")
+					cli, err = ConnectToMQTTServer(MQTTServerAddress)
+					if err != nil {
+						utils.Log.Println("Connect to MQTT Server failed:", err)
+					}
 				}
 
 				utils.Log.Printf("Send message to MQTT Server: %s, Length: %d\n", MQTTServerAddress, len(message_json_buffer))
