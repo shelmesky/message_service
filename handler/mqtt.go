@@ -85,6 +85,7 @@ func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessag
 					QoS:       mqtt.QoS0,
 					TopicName: []byte(channel_name),
 					Message:   []byte(message_json_buffer),
+					Retain:    false,
 				})
 
 				if err != nil {
