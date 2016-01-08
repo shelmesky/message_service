@@ -65,3 +65,8 @@ type ChannelStatusReply struct {
 	Result int             `json:"result"`
 	Data   []ChannelStatus `json:"data"`
 }
+
+type MQTTSingleTopicUsers struct {
+	Name   string
+	Length uint64
+}

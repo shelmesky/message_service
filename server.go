@@ -37,6 +37,7 @@ var (
 	KeepAlive            = flag.Bool("keepalive", true, "Enable HTTP Keepalive, default: true")
 	PollMessageSize      = flag.Int("poll_message_size", 50, "Size of the poll's message size")
 	MQTTServerAddress    = flag.String("mqtt_server", "", "MQTT server address")
+	MQTTServerPort       = flag.String("mqtt_server_port", "", "MQTT server address")
 	MQTTServerEnable     = flag.Bool("mqtt_server_enable", false, "enable or disable forward message to MQTT server")
 
 	Config lib.GlobalConfig
@@ -111,6 +112,7 @@ func ExtraInit() {
 		Config.KeepAlive = *KeepAlive
 		Config.PollMessageSize = *PollMessageSize
 		Config.MQTTServerAddress = *MQTTServerAddress
+		Config.MQTTServerPort = *MQTTServerPort
 		Config.MQTTServerEnable = *MQTTServerEnable
 
 	} else {
@@ -159,6 +161,10 @@ func ExtraInit() {
 
 		if *MQTTServerAddress != "" {
 			Config.MQTTServerAddress = *MQTTServerAddress
+		}
+
+		if *MQTTServerPort != "" {
+			Config.MQTTServerPort = *MQTTServerPort
 		}
 
 		if *MQTTServerEnable != false {

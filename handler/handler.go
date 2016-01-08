@@ -254,7 +254,7 @@ func AddChannel(channel_name string) *Channel {
 		if Config.MQTTServerEnable == true {
 			// 转发消息到MQTT服务器
 			channel.MQTTMessageChan = make(chan *lib.PostMessage, MQTT_BUFFER_SIZE)
-			close_chan = StartMQTTSender(Config.MQTTServerAddress, channel.MQTTMessageChan, channel_name)
+			close_chan = StartMQTTSender(Config.MQTTServerAddress+":"+Config.MQTTServerPort, channel.MQTTMessageChan, channel_name)
 			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
@@ -699,6 +699,7 @@ func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
 
 	var online_users_simple lib.OnlineUsersSimple
 	var channel_name string
+	var mqtt_users lib.MQTTSingleTopicUsers
 
 	all_channel.RLock.RLock()
 	defer all_channel.RLock.RUnlock()
@@ -711,9 +712,38 @@ func OnlineUsersSimpleHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if Config.MQTTServerEnable == true {
+		resp, err := http.Get("http://" + Config.MQTTServerAddress + ":18088/api/simple_topic/" + channel_name)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
+
+		if err != nil {
+			utils.Log.Printf("[%s] Get MQTT online users failed: %s, channel: [%s]\n", req.RemoteAddr, err, channel_name)
+			http.Error(w, "failed to get MQTT users", 500)
+			return
+		}
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			utils.Log.Printf("[%s] Read MQTT response failed: %s, channel: [%s]\n", req.RemoteAddr, err, channel_name)
+			http.Error(w, "read MQTT users failed", 500)
+			return
+		}
+
+		err = json.Unmarshal(body, &mqtt_users)
+		if err != nil {
+			utils.Log.Printf("[%s] Unmarshal JSON failed: [%s], channel: [%s]\n", req.RemoteAddr, err, channel_name)
+			http.Error(w, "Unmarshal json failed", 500)
+			return
+		}
+
+		online_users_simple.Length = mqtt_users.Length
+	}
+
 	channel := GetChannel(channel_name)
 
-	online_users_simple.Length = atomic.LoadUint64(&channel.RealUserCount)
+	online_users_simple.Length += atomic.LoadUint64(&channel.RealUserCount)
 	online_users_simple.Result = 0
 
 	buf, err := ffjson.Marshal(online_users_simple)

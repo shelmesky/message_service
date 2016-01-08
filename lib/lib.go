@@ -15,6 +15,7 @@ type GlobalConfig struct {
 	KeepAlive            bool   `json:"keepalive"`
 	PollMessageSize      int    `json:"poll_message_size"`
 	MQTTServerAddress    string `json:"mqtt_server"`
+	MQTTServerPort       string `json:"mqtt_server_port"`
 	MQTTServerEnable     bool   `json:"mqtt_server_enable"`
 	EnableServerProfile  bool
 	LogToStdout          bool

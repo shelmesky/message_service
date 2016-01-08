@@ -8,6 +8,7 @@
     "force_free_os_memory": false,
     "keepalive": true,
     "poll_message_size": 500,
-    "mqtt_server": "mqtt.unix.pub:1883",
+    "mqtt_server": "mqtt.unix.pub",
+    "mqtt_server_port": "1883",
     "mqtt_server_enable": false
 }
