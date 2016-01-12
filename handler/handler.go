@@ -12,6 +12,7 @@ import (
 	"github.com/shelmesky/message_service/utils"
 	"io/ioutil"
 	"net/http"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -20,9 +21,6 @@ import (
 )
 
 const (
-	CHANNEL_LOCKS     = 4
-	CHANNEL_SCAVENGER = 4
-
 	/* we support multiple channel,
 	so we must use small buffer size of channel,
 	except you use single channel for all user */
@@ -64,6 +62,9 @@ var (
 	ServerDebug bool
 
 	Config *lib.GlobalConfig
+
+	CHANNEL_LOCKS     = int(runtime.NumCPU())
+	CHANNEL_SCAVENGER = int(runtime.NumCPU())
 )
 
 type AllChannel struct {
@@ -322,7 +323,7 @@ func AddChannel(channel_name string) *Channel {
 
 func (this *Channel) getLock(user_id string) (*sync.RWMutex, uint32) {
 	user_id_hash := utils.GenKey(user_id)
-	user_lock_id := user_id_hash % CHANNEL_LOCKS
+	user_lock_id := user_id_hash % uint32(CHANNEL_LOCKS)
 
 	return this.UsersLock[user_lock_id], user_lock_id
 }
@@ -1305,7 +1306,7 @@ func StartChannelSenderStage1(channel_name string, stage1_channel chan *lib.Post
 				} else {
 					// 发送给channel的指定用户
 					user_id_hash := utils.GenKey(post_message.ToUser)
-					hash_key := user_id_hash % CHANNEL_LOCKS
+					hash_key := user_id_hash % uint32(CHANNEL_LOCKS)
 					select {
 					case stage2_channel_list[hash_key] <- post_message:
 					case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
