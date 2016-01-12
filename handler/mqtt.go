@@ -12,7 +12,7 @@ import (
 )
 
 /*
-Forward message to MQTT server
+Connect to MQTT server
 */
 func ConnectToMQTTServer(MQTTServerAddress string) (*client.Client, error) {
 	defer func() {
@@ -48,6 +48,9 @@ func ConnectToMQTTServer(MQTTServerAddress string) (*client.Client, error) {
 	return cli, nil
 }
 
+/*
+Forward message to MQTT server
+*/
 func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessage, channel_name string) chan bool {
 	close_chan := make(chan bool)
 	go func() {
