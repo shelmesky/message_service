@@ -78,7 +78,8 @@ func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessag
 			case post_message = <-MQTTSendChan:
 				message_json_buffer, err := ffjson.Marshal(post_message)
 				if err != nil {
-					utils.Log.Println()
+					utils.Log.Println("Marshal JSON failed:", err)
+					continue
 				}
 
 				err = cli.Publish(&client.PublishOptions{
