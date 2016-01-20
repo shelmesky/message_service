@@ -68,6 +68,9 @@ func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessag
 		cli, err = ConnectToMQTTServer(MQTTServerAddress)
 		if err != nil {
 			utils.Log.Println("Connect to MQTT Server failed:", err)
+			// if connect failed, wait for close signal
+			<-close_chan
+			close_chan <- true
 			return
 		}
 

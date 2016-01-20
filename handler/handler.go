@@ -109,6 +109,8 @@ type Channel struct {
 
 	ChannelRLock *sync.RWMutex
 
+	MessageCache map[string]*lib.PostMessage
+
 	PrepareClose bool
 	Closed       bool
 	CloseChan    []chan bool
@@ -259,6 +261,8 @@ func AddChannel(channel_name string) *Channel {
 			channel.CloseChan = append(channel.CloseChan, close_chan)
 		}
 
+		channel.MessageCache = make(map[string]*lib.PostMessage, 1024)
+
 		channel.LastPostUpdate = time.Now().Unix()
 
 		// 对象池
@@ -378,6 +382,27 @@ func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	users_lock.Lock()
 
 	if user, ok := this.Users[user_id]; ok {
+
+		for e := user.MessageBuffer.Front(); e != nil; e = e.Next() {
+			if post_message, ok := e.Value.(*lib.PostMessage); ok {
+				if atomic.LoadUint64(&post_message.Count) == 0 {
+					post_message.Lock.Lock()
+					delete(this.MessageCache, post_message.MessageID)
+					post_message.Lock.Unlock()
+				} else {
+					if ServerDebug {
+						utils.Log.Println("Release message reference count:", post_message.MessageID)
+					}
+					atomic.AddUint64(&post_message.Count, ^uint64(0))
+					if atomic.LoadUint64(&post_message.Count) == 0 {
+						post_message.Lock.Lock()
+						delete(this.MessageCache, post_message.MessageID)
+						post_message.Lock.Unlock()
+					}
+				}
+			}
+		}
+
 		user.MessageBuffer.Init()
 		user.MessageBuffer = nil
 		close(user.NotifyChan)
@@ -633,7 +658,8 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	channel = GetChannel(channel_name)
 
-	post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+	//post_message := channel.PostMessagePool.Get().(*lib.PostMessage)
+	post_message := new(lib.PostMessage)
 
 	err = ffjson.Unmarshal(body, post_message)
 	if err != nil {
@@ -644,7 +670,7 @@ func MessagePostHandler(w http.ResponseWriter, req *http.Request) {
 
 	if channel.PrepareClose == true {
 		utils.Log.Printf("[%s] Channel: [%s] will be closed.\n", req.RemoteAddr, channel_name)
-		http.Error(w, "channel will be closed", 500)
+		http.Error(w, "channel will be closed or not exists", 500)
 		return
 	}
 
@@ -1170,8 +1196,19 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 			e := user.MessageBuffer.Front()
 			if e != nil {
 				if post_message, ok := user.MessageBuffer.Remove(e).(*lib.PostMessage); ok {
-					message_list = append(message_list, post_message)
-					message_list_size += 1
+					if atomic.LoadUint64(&post_message.Count) > 0 {
+						// got message, decrement message reference count
+						message_list = append(message_list, post_message)
+						message_list_size += 1
+						atomic.AddUint64(&post_message.Count, ^uint64(0))
+
+						if atomic.LoadUint64(&post_message.Count) == 0 {
+							// delete message in channel's global message cache
+							post_message.Lock.Lock()
+							delete(channel.MessageCache, post_message.MessageID)
+							post_message.Lock.Unlock()
+						}
+					}
 				}
 			}
 		}
@@ -1220,9 +1257,11 @@ func MessagePollHandler(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Write(buf)
 
-	for idx := range message_list {
-		channel.PostMessagePool.Put(message_list[idx])
-	}
+	/*
+		for idx := range message_list {
+			channel.PostMessagePool.Put(message_list[idx])
+		}
+	*/
 
 	channel.PollMessagePool.Put(poll_message)
 	ffjson.Pool(buf)
@@ -1251,6 +1290,7 @@ func StartChannelSenderStage0(channel_name string, stage0_channel, stage1_channe
 				return
 
 			case post_message = <-stage0_channel:
+				post_message.Lock = new(isync.SpinLock)
 				stage1_channel <- post_message
 				channel.LastPostUpdate = time.Now().Unix()
 
@@ -1282,8 +1322,6 @@ func StartChannelSenderStage1(channel_name string, stage1_channel chan *lib.Post
 		var idx int
 		var post_message *lib.PostMessage
 
-		channel := GetChannel(channel_name)
-
 		for {
 			select {
 			case <-close_chan:
@@ -1295,14 +1333,12 @@ func StartChannelSenderStage1(channel_name string, stage1_channel chan *lib.Post
 				if post_message.ToUser == "" {
 					// channel内广播消息
 					for idx = range stage2_channel_list {
-						new_post_message := CopyMessage(channel, post_message)
 						select {
-						case stage2_channel_list[idx] <- new_post_message:
+						case stage2_channel_list[idx] <- post_message:
 						case _ = <-wheel_milliseconds.After(10 * time.Millisecond):
 							utils.Log.Printf("ChannelSenderStage1: Stage2 channel is full, channel: %s!!!\n", channel_name)
 						}
 					}
-					channel.PostMessagePool.Put(post_message)
 				} else {
 					// 发送给channel的指定用户
 					user_id_hash := utils.GenKey(post_message.ToUser)
@@ -1372,9 +1408,8 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 									continue
 								}
 
-								new_post_message := CopyMessage(channel, post_message)
 								user.SpinLock.Lock()
-								user.MessageBuffer.PushBack(new_post_message)
+								user.MessageBuffer.PushBack(post_message)
 								// when there is some stuff in notify chan
 								// we ignore the notify
 								if len(user.NotifyChan) == 0 {
@@ -1383,6 +1418,9 @@ func StartChannelSenderStage2(channel_name string, user_channel chan *User, stag
 									case <-wheel_milliseconds.After(10 * time.Millisecond):
 									}
 								}
+								// add message reference count
+								atomic.AddUint64(&post_message.Count, 1)
+								channel.MessageCache[post_message.MessageID] = post_message
 								user.SpinLock.Unlock()
 							}
 						}

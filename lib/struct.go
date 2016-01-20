@@ -1,5 +1,9 @@
 package lib
 
+import (
+	"github.com/shelmesky/message_service/sync"
+)
+
 type PollMessage struct {
 	Result        int            `json:"result"`
 	MessageLength int            `json:"length"`
@@ -12,6 +16,8 @@ type PostMessage struct {
 	ToUser      string `json:"to_user"`
 	Delay       int    `json:"delay"`
 	PayLoad     string `json:"payload"`
+	Count       uint64
+	Lock        *sync.SpinLock
 }
 
 type PostReply struct {
