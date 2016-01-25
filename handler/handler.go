@@ -377,31 +377,35 @@ func (this *Channel) AddUser(user_id, user_tag string) (*User, error) {
 	return user, fmt.Errorf("can not add user: [%s : %s]", this.Name, user_id)
 }
 
+func decr_message_ref(channel *Channel, message_buffer *list.List) {
+	for e := message_buffer.Front(); e != nil; e = e.Next() {
+		if post_message, ok := e.Value.(*lib.PostMessage); ok {
+			if atomic.LoadUint64(&post_message.Count) == 0 {
+				post_message.Lock.Lock()
+				delete(channel.MessageCache, post_message.MessageID)
+				post_message.Lock.Unlock()
+			} else {
+				if ServerDebug {
+					utils.Log.Println("Release message reference count:", post_message.MessageID)
+				}
+				atomic.AddUint64(&post_message.Count, ^uint64(0))
+				if atomic.LoadUint64(&post_message.Count) == 0 {
+					post_message.Lock.Lock()
+					delete(channel.MessageCache, post_message.MessageID)
+					post_message.Lock.Unlock()
+				}
+			}
+		}
+	}
+}
+
 func (this *Channel) DeleteUser(user_id string) (bool, error) {
 	users_lock, _ := this.getLock(user_id)
 	users_lock.Lock()
 
 	if user, ok := this.Users[user_id]; ok {
 
-		for e := user.MessageBuffer.Front(); e != nil; e = e.Next() {
-			if post_message, ok := e.Value.(*lib.PostMessage); ok {
-				if atomic.LoadUint64(&post_message.Count) == 0 {
-					post_message.Lock.Lock()
-					delete(this.MessageCache, post_message.MessageID)
-					post_message.Lock.Unlock()
-				} else {
-					if ServerDebug {
-						utils.Log.Println("Release message reference count:", post_message.MessageID)
-					}
-					atomic.AddUint64(&post_message.Count, ^uint64(0))
-					if atomic.LoadUint64(&post_message.Count) == 0 {
-						post_message.Lock.Lock()
-						delete(this.MessageCache, post_message.MessageID)
-						post_message.Lock.Unlock()
-					}
-				}
-			}
-		}
+		decr_message_ref(this, user.MessageBuffer)
 
 		user.MessageBuffer.Init()
 		user.MessageBuffer = nil
@@ -1066,6 +1070,7 @@ func MessageDeleteHandler(w http.ResponseWriter, req *http.Request) {
 
 	user.SpinLock.Lock()
 	if user.MessageBuffer != nil {
+		decr_message_ref(channel, user.MessageBuffer)
 		user.MessageBuffer = user.MessageBuffer.Init()
 	}
 
