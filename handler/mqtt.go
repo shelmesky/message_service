@@ -74,6 +74,8 @@ func StartMQTTSender(MQTTServerAddress string, MQTTSendChan chan *lib.PostMessag
 			return
 		}
 
+		defer cli.Disconnect()
+
 		for {
 			select {
 			case <-close_chan:
