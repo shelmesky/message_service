@@ -1694,6 +1694,8 @@ func StartGlobalScavenger() chan bool {
 						channel.GeneralSimpleOnlineUsersPool = nil
 						channel.SimpleOnlineUsersTagPool = nil
 
+						channel.MessageCache = nil
+
 						channel.Closed = true
 
 						delete(all_channel.Channels, channel_name)
