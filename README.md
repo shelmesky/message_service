@@ -8,6 +8,17 @@
 * OS：Ubuntu 14.04.3 LTS
 * Software：Golang 1.5
 
+### 内部实现
+
+* 支持并发的map结构
+* 原子操和自旋锁替代读写锁
+* 对象池
+* 内存池
+* 多级缓存加并发缓存
+* 广播消息使用引用计数
+* 定期回收内存对象
+* 定时器使用时间轮算法
+
 ##### 发送消息的RPS：10W/S
 
 ![image description](https://raw.githubusercontent.com/shelmesky/message_service/master/benchmark/message_service_post_rps.jpg)
